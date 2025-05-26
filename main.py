@@ -39,30 +39,46 @@ class InstagramScraper:
     def set_instagram_session(self, sessionid, csrf_token=None):
         """Set Instagram session cookies for authentication"""
         try:
-            # Clean the sessionid (remove any URL encoding)
-            if '%3A' in sessionid:
-                # URL decode the sessionid
-                import urllib.parse
-                sessionid = urllib.parse.unquote(sessionid)
-            
+            # Store original sessionid (don't decode it if it's already encoded properly)
             self.session_id = sessionid
             self.csrf_token = csrf_token
             
             # Clear existing cookies
             self.session.cookies.clear()
             
-            # Set the sessionid cookie
+            # Set the sessionid cookie - use original format
             self.session.cookies.set('sessionid', sessionid, domain='.instagram.com', path='/')
             
+            # Set CSRF token if provided
             if csrf_token:
                 self.session.cookies.set('csrftoken', csrf_token, domain='.instagram.com', path='/')
                 self.session.headers.update({'X-CSRFToken': csrf_token})
+            else:
+                # Set a basic CSRF token
+                self.session.cookies.set('csrftoken', 'GeBa58zESybAaWM8YDzOF5', domain='.instagram.com', path='/')
             
-            # Add other required Instagram cookies with proper format
+            # Add essential Instagram cookies
             self.session.cookies.set('mid', 'aDSa3AALAAGieULhLm97NP5dqp_Z', domain='.instagram.com', path='/')
             self.session.cookies.set('ig_did', '3B433670-1F70-4284-AAE8-6C2843AD70FA', domain='.instagram.com', path='/')
             self.session.cookies.set('ig_nrcb', '1', domain='.instagram.com', path='/')
             self.session.cookies.set('datr', '3Jo0aG_zLBi8BQ1nckRuwUuI', domain='.instagram.com', path='/')
+            self.session.cookies.set('rur', 'CLN', domain='.instagram.com', path='/')
+            self.session.cookies.set('ps_l', '1', domain='.instagram.com', path='/')
+            self.session.cookies.set('ps_n', '1', domain='.instagram.com', path='/')
+            
+            # Extract user ID from sessionid for ds_user_id
+            try:
+                # SessionID format is usually: user_id:hash:other_parts
+                if '%3A' in sessionid:
+                    import urllib.parse
+                    decoded_sessionid = urllib.parse.unquote(sessionid)
+                    user_id = decoded_sessionid.split(':')[0]
+                else:
+                    user_id = sessionid.split(':')[0]
+                self.session.cookies.set('ds_user_id', user_id, domain='.instagram.com', path='/')
+                print(f"Set ds_user_id to: {user_id}")
+            except:
+                print("Could not extract user ID from sessionid")
             
             # Update headers to mimic real browser
             self.session.headers.update({
@@ -77,9 +93,11 @@ class InstagramScraper:
                 'X-IG-App-ID': '936619743392459',
                 'X-IG-WWW-Claim': '0',
                 'X-Requested-With': 'XMLHttpRequest',
+                'Referer': 'https://www.instagram.com/',
             })
             
             self.authenticated = True
+            print(f"Session setup complete with {len(self.session.cookies)} cookies")
             return True
         except Exception as e:
             print(f"Error setting Instagram session: {e}")
@@ -176,17 +194,21 @@ class InstagramScraper:
             
             for attempt in range(max_retries):
                 try:
+                    # Create profile with proper session handling
                     profile = Profile(profile_url)
                     
-                    # Set the authenticated session for instascrape
-                    if hasattr(profile, '_session'):
-                        profile._session = self.session
+                    # Properly inject our authenticated session into the profile
+                    profile._session = self.session
                     
-                    # Add session cookies manually to the profile scraper
-                    profile._requests_session = self.session
+                    # Create headers with cookies for instascrape
+                    scrape_headers = self.session.headers.copy()
                     
-                    # Scrape the profile data
-                    profile.scrape(headers=self.session.headers)
+                    # Get cookies as a string for the Cookie header
+                    cookie_string = '; '.join([f'{cookie.name}={cookie.value}' for cookie in self.session.cookies])
+                    scrape_headers['Cookie'] = cookie_string
+                    
+                    # Scrape the profile data with proper headers and session
+                    profile.scrape(headers=scrape_headers, session=self.session)
                     
                     # Extract basic profile information
                     profile_data = {
@@ -203,7 +225,8 @@ class InstagramScraper:
                         'profile_pic_url': getattr(profile, 'profile_pic_url', 'N/A'),
                         'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'scraping_status': 'success',
-                        'authenticated': True
+                        'authenticated': True,
+                        'method': 'insta-scrape'
                     }
                     
                     # Try to get basic post count information
@@ -248,8 +271,13 @@ class InstagramScraper:
                                 'scraping_status': 'rate_limited'
                             }
                     
-                    # If it's the last attempt, return the error
+                    # If it's the last attempt, try the fallback method
                     if attempt == max_retries - 1:
+                        print(f"Trying fallback method for {clean_user}")
+                        fallback_result = self.scrape_profile_fallback(clean_user)
+                        if fallback_result and 'error' not in fallback_result:
+                            return fallback_result
+                        
                         return {
                             'error': f'Failed to scrape {clean_user} after {max_retries} attempts: {error_msg}',
                             'username': clean_user,
@@ -265,6 +293,47 @@ class InstagramScraper:
                 'username': username,
                 'scraping_status': 'error'
             }
+    
+    def scrape_profile_fallback(self, username):
+        """Fallback method using Instagram's web API directly"""
+        try:
+            api_url = f'https://www.instagram.com/api/v1/users/web_profile_info/?username={username}'
+            
+            response = self.session.get(api_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if 'data' in data and 'user' in data['data']:
+                    user_data = data['data']['user']
+                    
+                    return {
+                        'username': username,
+                        'profile_url': f'https://www.instagram.com/{username}/',
+                        'full_name': user_data.get('full_name', 'N/A'),
+                        'biography': user_data.get('biography', 'N/A'),
+                        'followers': user_data.get('edge_followed_by', {}).get('count', 'N/A'),
+                        'following': user_data.get('edge_follow', {}).get('count', 'N/A'),
+                        'posts_count': user_data.get('edge_owner_to_timeline_media', {}).get('count', 'N/A'),
+                        'is_verified': user_data.get('is_verified', False),
+                        'is_private': user_data.get('is_private', False),
+                        'external_url': user_data.get('external_url', 'N/A'),
+                        'profile_pic_url': user_data.get('profile_pic_url_hd', 'N/A'),
+                        'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'scraping_status': 'success',
+                        'authenticated': True,
+                        'method': 'api_fallback'
+                    }
+                else:
+                    print(f"No user data found in API response for {username}")
+                    return None
+            else:
+                print(f"API request failed with status {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"Fallback scraping failed for {username}: {e}")
+            return None
     
     def get_basic_posts_info(self, profile):
         """Try to get basic post information"""
