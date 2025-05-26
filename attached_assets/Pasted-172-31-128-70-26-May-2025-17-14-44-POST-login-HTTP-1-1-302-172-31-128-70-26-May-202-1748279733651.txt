@@ -1,0 +1,34 @@
+172.31.128.70 - - [26/May/2025 17:14:44] "POST /login HTTP/1.1" 302 -
+172.31.128.70 - - [26/May/2025 17:14:44] "GET / HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:45] "GET /files HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:45] "GET /auth_status HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:45] "GET /auth_status HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:45] "GET /files HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:57] "GET /logout HTTP/1.1" 302 -
+172.31.128.70 - - [26/May/2025 17:14:57] "GET / HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:58] "GET / HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:59] "GET /files HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:59] "GET /auth_status HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:59] "GET /auth_status HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:14:59] "GET /files HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:15:00] "GET /login HTTP/1.1" 200 -
+Attempting login with sessionid length: 77
+CSRF token provided: No
+Session cookies set successfully
+Authentication verified successfully
+Authentication successful!
+172.31.128.70 - - [26/May/2025 17:15:14] "POST /login HTTP/1.1" 302 -
+172.31.128.70 - - [26/May/2025 17:15:14] "GET / HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:15:15] "GET /files HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:15:15] "GET /auth_status HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:15:15] "GET /files HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:15:15] "GET /auth_status HTTP/1.1" 200 -
+172.31.128.70 - - [26/May/2025 17:15:40] "GET /download/instagram_data_20250526_164314.txt HTTP/1.1" 304 -
+172.31.128.70 - - [26/May/2025 17:15:46] "POST /scrape HTTP/1.1" 200 -
+/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/instascrape/core/_static_scraper.py:134: MissingCookiesWarning: Request header does not contain cookies! It's recommended you pass at least a valid sessionid otherwise Instagram will likely redirect you to their login page.
+  warnings.warn(
+Attempt 1 failed for heathmirandujillress: list index out of range
+Attempt 2 failed for heathmirandujillress: list index out of range
+172.31.128.70 - - [26/May/2025 17:15:54] "GET /files HTTP/1.1" 200 -
+Attempt 3 failed for heathmirandujillress: list index out of range
+172.31.128.70 - - [26/May/2025 17:16:04] "GET /download/instagram_data_20250526_171546.txt HTTP/1.1" 200 -
