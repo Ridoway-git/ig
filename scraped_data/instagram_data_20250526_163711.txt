@@ -1,8 +1,0 @@
-Instagram Scraping Results - 2025-05-26 16:37:11
-Powered by insta-scrape library
-================================================================================
-
-PROFILE: @heathmirandujillress
-----------------------------------------
-ERROR: Failed to scrape heathmirandujillress: list index out of range
-

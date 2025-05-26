@@ -1,7 +1,0 @@
-Instagram Scraping Results - 2025-05-26 16:32:20
-================================================================================
-
-PROFILE: @https://www.instagram.com/heathmirandujillress?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw==
-----------------------------------------
-ERROR: Failed to scrape https://www.instagram.com/heathmirandujillress?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw==: JSON Query to api/v1/users/web_profile_info/?username=https://www.instagram.com/heathmirandujillress?utm_source=ig_web_button_share_sheet&igsh=zdnlzdc0mzixnw==: 401 Unauthorized - "fail" status, message "Please wait a few minutes before you try again." when accessing https://i.instagram.com/api/v1/users/web_profile_info/?username=https://www.instagram.com/heathmirandujillress?utm_source=ig_web_button_share_sheet&igsh=zdnlzdc0mzixnw==
-
