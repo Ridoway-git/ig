@@ -280,7 +280,7 @@
         // Check authentication status on page load
         window.onload = function() {
             checkAuthStatus();
-            loadFiles();
+            updateFileList();
         };
 
         function checkAuthStatus() {
@@ -369,7 +369,7 @@
                 } else {
                     statusDiv.innerHTML = `<div class="success">✅ ${data.message}</div>`;
                     // Refresh files list after a delay
-                    setTimeout(loadFiles, 2000);
+                    setTimeout(updateFileList, 2000);
                 }
             })
             .catch(error => {
@@ -382,16 +382,16 @@
             fetch('/files')
                 .then(response => response.json())
                 .then(data => {
-                    const filesList = document.getElementById('files-list');
+                    const fileList = document.getElementById('file-list');
                     if (data.files && data.files.length > 0) {
-                        filesList.innerHTML = data.files.map(file => 
+                        fileList.innerHTML = data.files.map(file => 
                             `<div class="file-item">
                                 <span>📄 ${file}</span>
                                 <a href="/download/${file}" class="download-btn">Download</a>
                             </div>`
                         ).join('');
                     } else {
-                        filesList.innerHTML = '<div class="no-files">No files available yet</div>';
+                        fileList.innerHTML = '<div class="no-files">No files available yet</div>';
                     }
                 })
                 .catch(error => {
@@ -483,7 +483,7 @@
         // Load files on page load
         document.addEventListener('DOMContentLoaded', () => {
             updateFileList();
-            checkLoginStatus();
+            checkAuthStatus();
         });
     </script>
 
