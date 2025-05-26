@@ -1,0 +1,23 @@
+Instagram Profile Data Scraping Results
+Generated: 2025-05-26 16:42:21
+Powered by: insta-scrape library
+================================================================================
+
+IMPORTANT NOTES:
+- Instagram heavily restricts automated data access
+- This tool provides basic public profile information only
+- For detailed analytics, use Instagram Business API
+- Respect Instagram's Terms of Service and rate limits
+================================================================================
+
+PROFILE 1/1: @heathmirandujillress
+--------------------------------------------------
+❌ ERROR: Failed to scrape heathmirandujillress after 3 attempts: list index out of range
+
+SCRAPING SUMMARY:
+------------------------------
+✅ Successful: 0
+❌ Failed: 1
+⏱️ Rate Limited: 0
+📊 Total Processed: 1
+⏰ Completed At: 2025-05-26 16:42:32
