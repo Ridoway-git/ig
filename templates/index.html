@@ -312,59 +312,46 @@
         }
 
         function checkLoginStatus() {
-            fetch('/auth/status')
+            fetch('/auth_status')
             .then(response => response.json())
             .then(data => {
-                if (data.loggedIn) {
-                    showAuthStatus('Logged in successfully!', 'success');
+                if (data.authenticated) {
+                    showAuthStatus('✅ Logged in successfully!', 'success');
                     updateAuthButtons(true);
                 } else {
-                    showAuthStatus('Not logged in.', 'error');
+                    showAuthStatus('❌ Not logged in. Please login to use scraping features.', 'error');
                     updateAuthButtons(false);
                 }
             })
             .catch(error => {
                 console.error('Error checking login status:', error);
-                showAuthStatus(`Error: ${error.message}`, 'error');
+                showAuthStatus(`Error checking login status: ${error.message}`, 'error');
                 updateAuthButtons(false);
             });
         }
 
-
         function login() {
-            fetch('/auth/login')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showAuthStatus('Logged in successfully!', 'success');
-                    updateAuthButtons(true);
-                } else {
-                    showAuthStatus(`Login failed: ${data.message}`, 'error');
-                    updateAuthButtons(false);
-                }
-            })
-            .catch(error => {
-                console.error('Login error:', error);
-                showAuthStatus(`Login error: ${error.message}`, 'error');
-                updateAuthButtons(false);
-            });
+            // Redirect to login page instead of AJAX call
+            window.location.href = '/login';
         }
 
         function logout() {
-            fetch('/auth/logout')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showAuthStatus('Logged out successfully!', 'success');
+            fetch('/logout')
+            .then(response => {
+                if (response.ok) {
+                    showAuthStatus('✅ Logged out successfully!', 'success');
                     updateAuthButtons(false);
+                    // Redirect to refresh the page
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
                 } else {
-                    showAuthStatus(`Logout failed: ${data.message}`, 'error');
+                    showAuthStatus('❌ Logout failed', 'error');
                 }
             })
             .catch(error => {
                 console.error('Logout error:', error);
                 showAuthStatus(`Logout error: ${error.message}`, 'error');
-                updateAuthButtons(false);
             });
         }
 
