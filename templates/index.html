@@ -1,0 +1,344 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Scraper - Business Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(45deg, #405de6, #5851db, #833ab4, #c13584, #e1306c, #fd1d1d);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .input-section {
+            margin-bottom: 30px;
+        }
+        
+        .input-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: bold;
+        }
+        
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #405de6;
+        }
+        
+        textarea {
+            height: 120px;
+            resize: vertical;
+        }
+        
+        .btn {
+            background: linear-gradient(45deg, #405de6, #833ab4);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .files-section {
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 2px solid #eee;
+        }
+        
+        .file-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .file-item {
+            background: #f8f9fa;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: between;
+            align-items: center;
+        }
+        
+        .file-name {
+            flex-grow: 1;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .download-btn {
+            background: #28a745;
+            color: white;
+            padding: 8px 16px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .download-btn:hover {
+            background: #218838;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📱 Instagram Scraper</h1>
+            <p>Professional Business Intelligence Tool</p>
+        </div>
+        
+        <div class="content">
+            <div class="input-section">
+                <h3>🎯 Single Username</h3>
+                <div class="input-group">
+                    <label for="single-username">Enter Instagram Username (without @):</label>
+                    <input type="text" id="single-username" placeholder="e.g. instagram">
+                </div>
+                <button class="btn" onclick="scrapeSingle()">Scrape Single Account</button>
+            </div>
+            
+            <div class="input-section">
+                <h3>📋 Bulk Usernames</h3>
+                <div class="input-group">
+                    <label for="bulk-usernames">Enter Multiple Usernames (one per line):</label>
+                    <textarea id="bulk-usernames" placeholder="username1&#10;username2&#10;username3&#10;..."></textarea>
+                </div>
+                <button class="btn" onclick="scrapeBulk()">Scrape Multiple Accounts</button>
+            </div>
+            
+            <div id="status" class="status" style="display: none;"></div>
+            
+            <div class="files-section">
+                <h3>📁 Downloaded Files</h3>
+                <button class="btn" onclick="refreshFiles()">Refresh File List</button>
+                <ul id="file-list" class="file-list">
+                    <!-- Files will be loaded here -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+        
+        function hideStatus() {
+            document.getElementById('status').style.display = 'none';
+        }
+        
+        function scrapeSingle() {
+            const username = document.getElementById('single-username').value.trim();
+            if (!username) {
+                showStatus('Please enter a username', 'error');
+                return;
+            }
+            
+            scrapeUsernames([username]);
+        }
+        
+        function scrapeBulk() {
+            const bulk = document.getElementById('bulk-usernames').value.trim();
+            if (!bulk) {
+                showStatus('Please enter at least one username', 'error');
+                return;
+            }
+            
+            const usernames = bulk.split('\n')
+                .map(u => u.trim())
+                .filter(u => u.length > 0);
+            
+            if (usernames.length === 0) {
+                showStatus('Please enter valid usernames', 'error');
+                return;
+            }
+            
+            scrapeUsernames(usernames);
+        }
+        
+        function scrapeUsernames(usernames) {
+            showStatus(`🔄 Starting to scrape ${usernames.length} account(s)...`, 'info');
+            
+            // Disable buttons
+            document.querySelectorAll('.btn').forEach(btn => btn.disabled = true);
+            
+            fetch('/scrape', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ usernames: usernames })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showStatus(`❌ Error: ${data.error}`, 'error');
+                } else {
+                    showStatus(`✅ ${data.message}. Please wait, this may take a few minutes...`, 'success');
+                    // Refresh file list after a delay
+                    setTimeout(() => {
+                        refreshFiles();
+                        showStatus('✅ Scraping completed! Check the files below.', 'success');
+                    }, usernames.length * 3000 + 5000); // Estimate completion time
+                }
+            })
+            .catch(error => {
+                showStatus(`❌ Error: ${error.message}`, 'error');
+            })
+            .finally(() => {
+                // Re-enable buttons
+                document.querySelectorAll('.btn').forEach(btn => btn.disabled = false);
+            });
+        }
+        
+        function refreshFiles() {
+            fetch('/files')
+            .then(response => response.json())
+            .then(data => {
+                const fileList = document.getElementById('file-list');
+                fileList.innerHTML = '';
+                
+                if (data.files.length === 0) {
+                    fileList.innerHTML = '<li class="file-item">No files found. Start scraping to generate data files!</li>';
+                    return;
+                }
+                
+                data.files.forEach(file => {
+                    const li = document.createElement('li');
+                    li.className = 'file-item';
+                    li.innerHTML = `
+                        <span class="file-name">📄 ${file}</span>
+                        <a href="/download/${file}" class="download-btn">Download</a>
+                    `;
+                    fileList.appendChild(li);
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching files:', error);
+            });
+        }
+        
+        // Load files on page load
+        document.addEventListener('DOMContentLoaded', refreshFiles);
+    </script>
+</body>
+</html>
