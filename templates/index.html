@@ -249,24 +249,30 @@
             <div class="input-section">
                 <h3>🎯 Single Username</h3>
                 <div class="input-group">
-                    <label for="single-username">Enter Instagram Username (without @):</label>
-                    <input type="text" id="single-username" placeholder="e.g. instagram">
+                    <label for="single-username">Instagram Username:</label>
+                    <input type="text" id="single-username" placeholder="Enter username (e.g., instagram)">
+                    <button class="btn" onclick="scrapeSingle()">Scrape Profile</button>
                 </div>
-                <button class="btn" onclick="scrapeSingle()">Scrape Single Account</button>
             </div>
 
             <div class="input-section">
                 <h3>📋 Bulk Usernames</h3>
                 <div class="input-group">
-                    <label for="bulk-usernames">Enter Multiple Usernames (one per line):</label>
-                    <textarea id="bulk-usernames" placeholder="username1&#10;username2&#10;username3&#10;..."></textarea>
+                    <label for="bulk-usernames">Enter usernames (one per line):</label>
+                    <textarea id="bulk-usernames" placeholder="Enter usernames, one per line"></textarea>
+                    <button class="btn" onclick="scrapeBulk()">Scrape Profiles</button>
                 </div>
-                <button class="btn" onclick="scrapeBulk()">Scrape Multiple Accounts</button>
             </div>
 
             <div id="status" class="status" style="display: none;"></div>
 
-            
+            <div class="files-section">
+                <h3>📁 Downloaded Files</h3>
+                <button class="btn" onclick="updateFileList()">Refresh File List</button>
+                <ul id="file-list" class="file-list">
+                    <!-- Files will be loaded here -->
+                </ul>
+            </div>
         </div>
     </div>
 
@@ -392,6 +398,93 @@
                     console.error('Error loading files:', error);
                 });
         }
+
+        // Function to update file list
+        function updateFileList() {
+            fetch('/files')
+                .then(response => response.json())
+                .then(data => {
+                    const fileList = document.getElementById('file-list');
+                    fileList.innerHTML = '';
+                    
+                    if (data.files && data.files.length > 0) {
+                        data.files.forEach(file => {
+                            const li = document.createElement('li');
+                            li.className = 'file-item';
+                            
+                            // Format file size
+                            const fileSize = formatFileSize(file.size);
+                            
+                            // Create file info
+                            const fileInfo = document.createElement('div');
+                            fileInfo.className = 'file-info';
+                            fileInfo.innerHTML = `
+                                <div class="file-name">${file.name}</div>
+                                <div class="file-details">
+                                    <span class="file-type">${file.type}</span>
+                                    <span class="file-size">${fileSize}</span>
+                                </div>
+                            `;
+                            
+                            // Create download button
+                            const downloadBtn = document.createElement('a');
+                            downloadBtn.href = `/download/${file.name}`;
+                            downloadBtn.className = 'download-btn';
+                            downloadBtn.textContent = 'Download';
+                            
+                            li.appendChild(fileInfo);
+                            li.appendChild(downloadBtn);
+                            fileList.appendChild(li);
+                        });
+                    } else {
+                        fileList.innerHTML = '<li class="file-item">No files found</li>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching files:', error);
+                    const fileList = document.getElementById('file-list');
+                    fileList.innerHTML = '<li class="file-item">Error loading files</li>';
+                });
+        }
+
+        // Function to format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Add some CSS for the new elements
+        const style = document.createElement('style');
+        style.textContent = `
+            .file-info {
+                flex-grow: 1;
+                margin-right: 15px;
+            }
+            .file-details {
+                font-size: 0.9em;
+                color: #666;
+                margin-top: 5px;
+            }
+            .file-type {
+                background: #e9ecef;
+                padding: 2px 8px;
+                border-radius: 4px;
+                margin-right: 10px;
+            }
+            .file-size {
+                color: #6c757d;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Load files on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            updateFileList();
+            checkLoginStatus();
+        });
     </script>
 
     <style>
@@ -598,194 +691,5 @@
             padding: 20px;
         }
     </style>
-</body>
-</html>;"></div>
-
-            <div class="files-section">
-                <h3>📁 Downloaded Files</h3>
-                <button class="btn" onclick="refreshFiles()">Refresh File List</button>
-                <ul id="file-list" class="file-list">
-                    <!-- Files will be loaded here -->
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        function showStatus(message, type = 'info') {
-            const status = document.getElementById('status');
-            status.textContent = message;
-            status.className = `status ${type}`;
-            status.style.display = 'block';
-        }
-
-        function hideStatus() {
-            document.getElementById('status').style.display = 'none';
-        }
-
-        function showAuthStatus(message, type = 'info') {
-            const authStatus = document.getElementById('auth-status');
-            authStatus.textContent = message;
-            authStatus.className = `auth-status ${type}`;
-            authStatus.style.display = 'block';
-        }
-
-        function hideAuthStatus() {
-            document.getElementById('auth-status').style.display = 'none';
-        }
-
-        function updateAuthButtons(loggedIn) {
-            const loginButton = document.getElementById('login-button');
-            const logoutButton = document.getElementById('logout-button');
-
-            if (loggedIn) {
-                loginButton.style.display = 'none';
-                logoutButton.style.display = 'inline-block';
-            } else {
-                loginButton.style.display = 'inline-block';
-                logoutButton.style.display = 'none';
-            }
-        }
-
-        function checkLoginStatus() {
-            fetch('/auth_status')
-            .then(response => response.json())
-            .then(data => {
-                if (data.authenticated) {
-                    showAuthStatus('✅ Logged in successfully!', 'success');
-                    updateAuthButtons(true);
-                } else {
-                    showAuthStatus('❌ Not logged in. Please login to use scraping features.', 'error');
-                    updateAuthButtons(false);
-                }
-            })
-            .catch(error => {
-                console.error('Error checking login status:', error);
-                showAuthStatus(`Error checking login status: ${error.message}`, 'error');
-                updateAuthButtons(false);
-            });
-        }
-
-        function login() {
-            // Redirect to login page instead of AJAX call
-            window.location.href = '/login';
-        }
-
-        function logout() {
-            fetch('/logout')
-            .then(response => {
-                if (response.ok) {
-                    showAuthStatus('✅ Logged out successfully!', 'success');
-                    updateAuthButtons(false);
-                    // Redirect to refresh the page
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000);
-                } else {
-                    showAuthStatus('❌ Logout failed', 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Logout error:', error);
-                showAuthStatus(`Logout error: ${error.message}`, 'error');
-            });
-        }
-
-
-        function scrapeSingle() {
-            const username = document.getElementById('single-username').value.trim();
-            if (!username) {
-                showStatus('Please enter a username', 'error');
-                return;
-            }
-
-            scrapeUsernames([username]);
-        }
-
-        function scrapeBulk() {
-            const bulk = document.getElementById('bulk-usernames').value.trim();
-            if (!bulk) {
-                showStatus('Please enter at least one username', 'error');
-                return;
-            }
-
-            const usernames = bulk.split('\n')
-                .map(u => u.trim())
-                .filter(u => u.length > 0);
-
-            if (usernames.length === 0) {
-                showStatus('Please enter valid usernames', 'error');
-                return;
-            }
-
-            scrapeUsernames(usernames);
-        }
-
-        function scrapeUsernames(usernames) {
-            showStatus(`🔄 Starting to scrape ${usernames.length} account(s)...`, 'info');
-
-            // Disable buttons
-            document.querySelectorAll('.btn').forEach(btn => btn.disabled = true);
-
-            fetch('/scrape', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ usernames: usernames })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showStatus(`❌ Error: ${data.error}`, 'error');
-                } else {
-                    showStatus(`✅ ${data.message}. Please wait, this may take a few minutes...`, 'success');
-                    // Refresh file list after a delay
-                    setTimeout(() => {
-                        refreshFiles();
-                        showStatus('✅ Scraping completed! Check the files below.', 'success');
-                    }, usernames.length * 3000 + 5000); // Estimate completion time
-                }
-            })
-            .catch(error => {
-                showStatus(`❌ Error: ${error.message}`, 'error');
-            })
-            .finally(() => {
-                // Re-enable buttons
-                document.querySelectorAll('.btn').forEach(btn => btn.disabled = false);
-            });
-        }
-
-        function refreshFiles() {
-            fetch('/files')
-            .then(response => response.json())
-            .then(data => {
-                const fileList = document.getElementById('file-list');
-                fileList.innerHTML = '';
-
-                if (data.files.length === 0) {
-                    fileList.innerHTML = '<li class="file-item">No files found. Start scraping to generate data files!</li>';
-                    return;
-                }
-
-                data.files.forEach(file => {
-                    const li = document.createElement('li');
-                    li.className = 'file-item';
-                    li.innerHTML = `
-                        <span class="file-name">📄 ${file}</span>
-                        <a href="/download/${file}" class="download-btn">Download</a>
-                    `;
-                    fileList.appendChild(li);
-                });
-            })
-            .catch(error => {
-                console.error('Error fetching files:', error);
-            });
-        }
-
-        // Load files on page load
-        document.addEventListener('DOMContentLoaded', refreshFiles);
-        document.addEventListener('DOMContentLoaded', checkLoginStatus);
-    </script>
 </body>
 </html>
