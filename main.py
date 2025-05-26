@@ -1,4 +1,3 @@
-
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 from instascrape import Profile, Post
 import os
@@ -9,6 +8,8 @@ import time
 import requests
 from urllib.parse import urlparse
 import re
+import pandas as pd
+import io
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_change_this_in_production'
@@ -446,13 +447,17 @@ def scrape_usernames():
 
 def process_scraping(usernames):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'scraped_data/instagram_data_{timestamp}.txt'
+    txt_filename = f'scraped_data/instagram_data_{timestamp}.txt'
+    excel_filename = f'scraped_data/instagram_data_{timestamp}.xlsx'
     
     successful_scrapes = 0
     failed_scrapes = 0
     rate_limited = 0
     
-    with open(filename, 'w', encoding='utf-8') as f:
+    # Create a list to store all profile data for Excel
+    all_profiles_data = []
+    
+    with open(txt_filename, 'w', encoding='utf-8') as f:
         f.write(f"Instagram Profile Data Scraping Results\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Powered by: insta-scrape library\n")
@@ -480,6 +485,14 @@ def process_scraping(usernames):
                 else:
                     failed_scrapes += 1
                 
+                # Add error data to Excel list
+                all_profiles_data.append({
+                    'Username': username,
+                    'Status': 'Error',
+                    'Error Message': profile_data['error'],
+                    'Scraping Status': profile_data.get('scraping_status', 'unknown')
+                })
+                
                 f.write("\n")
                 continue
             
@@ -506,6 +519,25 @@ def process_scraping(usernames):
             if profile_data.get('posts_error'):
                 f.write(f"⚠️ Posts Info: {profile_data['posts_error']}\n")
             
+            # Add profile data to Excel list
+            excel_data = {
+                'Username': profile_data.get('username', username),
+                'Full Name': profile_data.get('full_name', 'N/A'),
+                'Biography': profile_data.get('biography', 'N/A'),
+                'Followers': profile_data.get('followers', 'N/A'),
+                'Following': profile_data.get('following', 'N/A'),
+                'Posts Count': profile_data.get('posts_count', 'N/A'),
+                'Verified': 'Yes' if profile_data.get('is_verified') else 'No',
+                'Private': 'Yes' if profile_data.get('is_private') else 'No',
+                'External URL': profile_data.get('external_url', 'N/A'),
+                'Profile Picture URL': profile_data.get('profile_pic_url', 'N/A'),
+                'Scraped At': profile_data.get('scraped_at', 'N/A'),
+                'Status': 'Success',
+                'Note': profile_data.get('note', ''),
+                'Posts Error': profile_data.get('posts_error', '')
+            }
+            all_profiles_data.append(excel_data)
+            
             f.write("\n" + "=" * 80 + "\n\n")
             
             # Add delay between requests to be respectful
@@ -520,12 +552,26 @@ def process_scraping(usernames):
         f.write(f"⏱️ Rate Limited: {rate_limited}\n")
         f.write(f"📊 Total Processed: {len(usernames)}\n")
         f.write(f"⏰ Completed At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    # Create Excel file
+    try:
+        df = pd.DataFrame(all_profiles_data)
+        df.to_excel(excel_filename, index=False, engine='openpyxl')
+    except Exception as e:
+        print(f"Error creating Excel file: {e}")
 
 @app.route('/files')
 def list_files():
     try:
-        files = [f for f in os.listdir('scraped_data') if f.endswith('.txt')]
-        files.sort(reverse=True)  # Most recent first
+        files = []
+        for f in os.listdir('scraped_data'):
+            if f.endswith(('.txt', '.xlsx')):
+                files.append({
+                    'name': f,
+                    'type': 'Excel' if f.endswith('.xlsx') else 'Text',
+                    'size': os.path.getsize(os.path.join('scraped_data', f))
+                })
+        files.sort(key=lambda x: x['name'], reverse=True)  # Most recent first
         return jsonify({'files': files})
     except Exception as e:
         return jsonify({'files': [], 'error': str(e)})

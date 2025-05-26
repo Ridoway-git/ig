@@ -9,4 +9,6 @@ dependencies = [
     "insta-scrape>=2.1.2",
     "instaloader>=4.14.1",
     "requests>=2.32.3",
+    "pandas>=2.2.0",
+    "openpyxl>=3.1.2",
 ]
