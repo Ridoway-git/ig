@@ -1,6 +1,6 @@
 
 from flask import Flask, render_template, request, jsonify, send_file
-import instaloader
+from instascrape import Profile, Post
 import os
 import json
 from datetime import datetime
@@ -15,49 +15,66 @@ os.makedirs('templates', exist_ok=True)
 
 class InstagramScraper:
     def __init__(self):
-        self.loader = instaloader.Instaloader()
-        # Disable downloading of videos, photos to save space
-        self.loader.download_videos = False
-        self.loader.download_video_thumbnails = False
-        self.loader.download_geotags = False
-        self.loader.download_comments = False
-        self.loader.save_metadata = False
+        pass
     
     def scrape_profile(self, username):
         try:
-            profile = instaloader.Profile.from_username(self.loader.context, username)
+            # Create profile URL
+            profile_url = f'https://www.instagram.com/{username}/'
+            profile = Profile(profile_url)
+            
+            # Scrape the profile data
+            profile.scrape()
             
             profile_data = {
-                'username': profile.username,
-                'full_name': profile.full_name,
-                'biography': profile.biography,
-                'followers': profile.followers,
-                'followees': profile.followees,
-                'posts_count': profile.mediacount,
-                'is_verified': profile.is_verified,
-                'is_private': profile.is_private,
-                'external_url': profile.external_url,
+                'username': username,
+                'full_name': getattr(profile, 'full_name', 'N/A'),
+                'biography': getattr(profile, 'biography', 'N/A'),
+                'followers': getattr(profile, 'followers', 0),
+                'following': getattr(profile, 'following', 0),
+                'posts_count': getattr(profile, 'posts', 0),
+                'is_verified': getattr(profile, 'is_verified', False),
+                'is_private': getattr(profile, 'is_private', False),
+                'external_url': getattr(profile, 'external_url', 'N/A'),
+                'profile_pic_url': getattr(profile, 'profile_pic_url', 'N/A'),
                 'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
             
             # Get recent posts data
             posts_data = []
-            post_count = 0
-            for post in profile.get_posts():
-                if post_count >= 10:  # Limit to 10 recent posts
-                    break
-                
-                post_info = {
-                    'shortcode': post.shortcode,
-                    'date': post.date.strftime('%Y-%m-%d %H:%M:%S'),
-                    'caption': post.caption,
-                    'likes': post.likes,
-                    'comments': post.comments,
-                    'is_video': post.is_video,
-                    'url': f"https://www.instagram.com/p/{post.shortcode}/"
-                }
-                posts_data.append(post_info)
-                post_count += 1
+            try:
+                # Get recent posts URLs (limit to 10)
+                recent_posts = getattr(profile, 'posts', [])
+                if recent_posts and len(recent_posts) > 0:
+                    # Take first 10 posts
+                    post_urls = recent_posts[:10] if len(recent_posts) >= 10 else recent_posts
+                    
+                    for i, post_url in enumerate(post_urls):
+                        if i >= 10:  # Safety limit
+                            break
+                        try:
+                            post = Post(post_url)
+                            post.scrape()
+                            
+                            post_info = {
+                                'url': post_url,
+                                'upload_date': getattr(post, 'upload_date', 'N/A'),
+                                'caption': getattr(post, 'caption', 'N/A'),
+                                'likes': getattr(post, 'likes', 0),
+                                'comments': getattr(post, 'comments', 0),
+                                'hashtags': getattr(post, 'hashtags', []),
+                                'mentions': getattr(post, 'mentions', []),
+                                'is_video': getattr(post, 'is_video', False)
+                            }
+                            posts_data.append(post_info)
+                            
+                            # Add small delay between post scrapes
+                            time.sleep(1)
+                        except Exception as post_error:
+                            print(f"Error scraping post {post_url}: {post_error}")
+                            continue
+            except Exception as posts_error:
+                print(f"Error getting posts for {username}: {posts_error}")
             
             profile_data['recent_posts'] = posts_data
             return profile_data
@@ -91,6 +108,7 @@ def process_scraping(usernames):
     
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(f"Instagram Scraping Results - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("Powered by insta-scrape library\n")
         f.write("=" * 80 + "\n\n")
         
         for username in usernames:
@@ -107,11 +125,12 @@ def process_scraping(usernames):
             f.write(f"Full Name: {profile_data.get('full_name', 'N/A')}\n")
             f.write(f"Biography: {profile_data.get('biography', 'N/A')}\n")
             f.write(f"Followers: {profile_data.get('followers', 0):,}\n")
-            f.write(f"Following: {profile_data.get('followees', 0):,}\n")
+            f.write(f"Following: {profile_data.get('following', 0):,}\n")
             f.write(f"Posts Count: {profile_data.get('posts_count', 0):,}\n")
             f.write(f"Verified: {'Yes' if profile_data.get('is_verified') else 'No'}\n")
             f.write(f"Private: {'Yes' if profile_data.get('is_private') else 'No'}\n")
             f.write(f"External URL: {profile_data.get('external_url', 'N/A')}\n")
+            f.write(f"Profile Picture URL: {profile_data.get('profile_pic_url', 'N/A')}\n")
             f.write(f"Scraped At: {profile_data.get('scraped_at')}\n\n")
             
             # Write recent posts
@@ -119,20 +138,34 @@ def process_scraping(usernames):
                 f.write("RECENT POSTS:\n")
                 for i, post in enumerate(profile_data['recent_posts'], 1):
                     f.write(f"  Post {i}:\n")
-                    f.write(f"    Date: {post.get('date')}\n")
+                    f.write(f"    Upload Date: {post.get('upload_date', 'N/A')}\n")
                     f.write(f"    Likes: {post.get('likes', 0):,}\n")
                     f.write(f"    Comments: {post.get('comments', 0):,}\n")
                     f.write(f"    Type: {'Video' if post.get('is_video') else 'Photo'}\n")
-                    f.write(f"    URL: {post.get('url')}\n")
-                    if post.get('caption'):
+                    f.write(f"    URL: {post.get('url', 'N/A')}\n")
+                    
+                    # Hashtags
+                    hashtags = post.get('hashtags', [])
+                    if hashtags:
+                        f.write(f"    Hashtags: {', '.join(hashtags)}\n")
+                    
+                    # Mentions
+                    mentions = post.get('mentions', [])
+                    if mentions:
+                        f.write(f"    Mentions: {', '.join(mentions)}\n")
+                    
+                    # Caption
+                    if post.get('caption') and post.get('caption') != 'N/A':
                         caption = post['caption'][:200] + '...' if len(post['caption']) > 200 else post['caption']
                         f.write(f"    Caption: {caption}\n")
                     f.write("\n")
+            else:
+                f.write("No recent posts data available.\n\n")
             
             f.write("\n" + "=" * 80 + "\n\n")
             
             # Add delay to avoid rate limiting
-            time.sleep(2)
+            time.sleep(3)
 
 @app.route('/files')
 def list_files():
