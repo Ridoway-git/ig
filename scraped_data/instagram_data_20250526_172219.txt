@@ -1,0 +1,39 @@
+Instagram Profile Data Scraping Results
+Generated: 2025-05-26 17:22:19
+Powered by: insta-scrape library
+================================================================================
+
+IMPORTANT NOTES:
+- Instagram heavily restricts automated data access
+- This tool provides basic public profile information only
+- For detailed analytics, use Instagram Business API
+- Respect Instagram's Terms of Service and rate limits
+================================================================================
+
+PROFILE 1/1: @shammiislamnilaofficial
+--------------------------------------------------
+✅ Successfully scraped: @shammiislamnilaofficial
+📁 Profile URL: https://www.instagram.com/shammiislamnilaofficial/
+👤 Full Name: Shammi Islam Nila 👑🇧🇩
+📝 Biography: @miss.world.bangladesh (2023-2024) 👑 🇧🇩
+Together we are stronger 
+For Work Queries 📨 ishammi88@gmail.com
+Founder of @projectsmileblossom
+👥 Followers: 297724
+➡️ Following: 1651
+📸 Posts Count: 795
+✔️ Verified: Yes
+🔒 Private: No
+🔗 External URL: None
+🖼️ Profile Picture: https://scontent-bom2-1.cdninstagram.com/v/t51.2885-19/487551054_1712501212956569_8894447070621303204_n.jpg?stp=dst-jpg_s320x320_tt6&_nc_ht=scontent-bom2-1.cdninstagram.com&_nc_cat=1&_nc_oc=Q6cZ2QEXg06gwwMqtaR5ou4kaaeoeCfp6ZblKwQx4Bf__dBJ_txhZ_glKcI3dgbZgbimSOM&_nc_ohc=uG1n7ABi-LkQ7kNvwGtwOPX&_nc_gid=va8Q5cDeeOXZHJ930hUtHA&edm=AOQ1c0wBAAAA&ccb=7-5&oh=00_AfJ-Fm4Ut2oEVthnBZrgpCJt6QPNf9ngyq_PZc8OAY8trQ&oe=683A7425&_nc_sid=8b3546
+⏰ Scraped At: 2025-05-26 17:22:32
+
+================================================================================
+
+SCRAPING SUMMARY:
+------------------------------
+✅ Successful: 1
+❌ Failed: 0
+⏱️ Rate Limited: 0
+📊 Total Processed: 1
+⏰ Completed At: 2025-05-26 17:22:32
