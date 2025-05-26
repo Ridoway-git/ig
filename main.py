@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 from instascrape import Profile, Post
 import os
 import json
@@ -8,8 +8,10 @@ import threading
 import time
 import requests
 from urllib.parse import urlparse
+import re
 
 app = Flask(__name__)
+app.secret_key = 'your_secret_key_change_this_in_production'
 
 # Create directories for storing data
 os.makedirs('scraped_data', exist_ok=True)
@@ -17,8 +19,12 @@ os.makedirs('templates', exist_ok=True)
 
 class InstagramScraper:
     def __init__(self):
-        # Add session cookies to avoid Instagram login redirect
+        # Instagram session cookies and headers
         self.session = requests.Session()
+        self.authenticated = False
+        self.session_id = None
+        self.csrf_token = None
+        
         # Basic headers to mimic a real browser
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -27,7 +33,53 @@ class InstagramScraper:
             'Accept-Encoding': 'gzip, deflate',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
+            'X-Requested-With': 'XMLHttpRequest',
         })
+    
+    def set_instagram_session(self, sessionid, csrf_token=None):
+        """Set Instagram session cookies for authentication"""
+        try:
+            self.session_id = sessionid
+            self.csrf_token = csrf_token
+            
+            # Set the sessionid cookie
+            self.session.cookies.set('sessionid', sessionid, domain='.instagram.com')
+            
+            if csrf_token:
+                self.session.cookies.set('csrftoken', csrf_token, domain='.instagram.com')
+                self.session.headers.update({'X-CSRFToken': csrf_token})
+            
+            # Add additional Instagram cookies that are commonly required
+            self.session.cookies.set('mid', 'Y0m7fgAEAAF7W8rK0gABbQlTAA..', domain='.instagram.com')
+            self.session.cookies.set('ig_did', 'FC8F5C85-DDEF-4C53-9B4B-123456789ABC', domain='.instagram.com')
+            self.session.cookies.set('ig_nrcb', '1', domain='.instagram.com')
+            
+            self.authenticated = True
+            return True
+        except Exception as e:
+            print(f"Error setting Instagram session: {e}")
+            return False
+    
+    def verify_authentication(self):
+        """Verify if the current session is valid"""
+        try:
+            if not self.session_id:
+                return False
+                
+            # Test authentication by trying to access Instagram API
+            test_url = 'https://www.instagram.com/api/v1/users/web_profile_info/?username=instagram'
+            response = self.session.get(test_url)
+            
+            if response.status_code == 200:
+                self.authenticated = True
+                return True
+            else:
+                self.authenticated = False
+                return False
+        except Exception as e:
+            print(f"Authentication verification failed: {e}")
+            self.authenticated = False
+            return False
     
     def clean_username(self, username):
         """Clean and validate username"""
@@ -51,6 +103,14 @@ class InstagramScraper:
     
     def scrape_profile(self, username):
         try:
+            # Check if authenticated
+            if not self.authenticated:
+                return {
+                    'error': f'Instagram authentication required. Please login first.',
+                    'username': username,
+                    'scraping_status': 'auth_required'
+                }
+            
             # Clean the username
             clean_user = self.clean_username(username)
             
@@ -68,12 +128,15 @@ class InstagramScraper:
                 try:
                     profile = Profile(profile_url)
                     
-                    # Add session to profile for better authentication
+                    # Set the authenticated session for instascrape
                     if hasattr(profile, '_session'):
                         profile._session = self.session
                     
+                    # Add session cookies manually to the profile scraper
+                    profile._requests_session = self.session
+                    
                     # Scrape the profile data
-                    profile.scrape()
+                    profile.scrape(headers=self.session.headers)
                     
                     # Extract basic profile information
                     profile_data = {
@@ -89,7 +152,8 @@ class InstagramScraper:
                         'external_url': getattr(profile, 'external_url', 'N/A'),
                         'profile_pic_url': getattr(profile, 'profile_pic_url', 'N/A'),
                         'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'scraping_status': 'success'
+                        'scraping_status': 'success',
+                        'authenticated': True
                     }
                     
                     # Try to get basic post count information
@@ -111,8 +175,17 @@ class InstagramScraper:
                     error_msg = str(e)
                     print(f"Attempt {attempt + 1} failed for {clean_user}: {error_msg}")
                     
+                    # Check if it's an authentication error
+                    if 'unauthorized' in error_msg.lower() or '401' in error_msg or 'login' in error_msg.lower():
+                        self.authenticated = False
+                        return {
+                            'error': f'Instagram authentication failed for {clean_user}. Please check your session credentials.',
+                            'username': clean_user,
+                            'scraping_status': 'auth_failed'
+                        }
+                    
                     # Check if it's a rate limit error
-                    if 'unauthorized' in error_msg.lower() or '401' in error_msg:
+                    if 'rate limit' in error_msg.lower() or '429' in error_msg:
                         if attempt < max_retries - 1:
                             print(f"Rate limited, waiting {retry_delay} seconds before retry...")
                             time.sleep(retry_delay)
@@ -161,10 +234,57 @@ scraper = InstagramScraper()
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    auth_status = session.get('instagram_authenticated', False)
+    return render_template('index.html', authenticated=auth_status)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        sessionid = request.form.get('sessionid', '').strip()
+        csrf_token = request.form.get('csrf_token', '').strip()
+        
+        if not sessionid:
+            return render_template('login.html', error='Session ID is required')
+        
+        # Set Instagram session
+        if scraper.set_instagram_session(sessionid, csrf_token):
+            if scraper.verify_authentication():
+                session['instagram_authenticated'] = True
+                session['instagram_sessionid'] = sessionid
+                return redirect(url_for('index'))
+            else:
+                return render_template('login.html', error='Invalid session credentials. Please check your Session ID.')
+        else:
+            return render_template('login.html', error='Failed to set Instagram session')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    scraper.authenticated = False
+    scraper.session_id = None
+    scraper.csrf_token = None
+    return redirect(url_for('index'))
+
+@app.route('/auth_status')
+def auth_status():
+    is_authenticated = session.get('instagram_authenticated', False)
+    if is_authenticated and session.get('instagram_sessionid'):
+        # Restore session if it exists
+        scraper.set_instagram_session(session.get('instagram_sessionid'))
+    
+    return jsonify({
+        'authenticated': is_authenticated,
+        'scraper_authenticated': scraper.authenticated
+    })
 
 @app.route('/scrape', methods=['POST'])
 def scrape_usernames():
+    # Check authentication first
+    if not session.get('instagram_authenticated') or not scraper.authenticated:
+        return jsonify({'error': 'Instagram authentication required. Please login first.'}), 401
+    
     data = request.get_json()
     usernames = data.get('usernames', [])
     
