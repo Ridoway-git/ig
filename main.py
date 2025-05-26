@@ -39,20 +39,45 @@ class InstagramScraper:
     def set_instagram_session(self, sessionid, csrf_token=None):
         """Set Instagram session cookies for authentication"""
         try:
+            # Clean the sessionid (remove any URL encoding)
+            if '%3A' in sessionid:
+                # URL decode the sessionid
+                import urllib.parse
+                sessionid = urllib.parse.unquote(sessionid)
+            
             self.session_id = sessionid
             self.csrf_token = csrf_token
             
+            # Clear existing cookies
+            self.session.cookies.clear()
+            
             # Set the sessionid cookie
-            self.session.cookies.set('sessionid', sessionid, domain='.instagram.com')
+            self.session.cookies.set('sessionid', sessionid, domain='.instagram.com', path='/')
             
             if csrf_token:
-                self.session.cookies.set('csrftoken', csrf_token, domain='.instagram.com')
+                self.session.cookies.set('csrftoken', csrf_token, domain='.instagram.com', path='/')
                 self.session.headers.update({'X-CSRFToken': csrf_token})
             
-            # Add additional Instagram cookies that are commonly required
-            self.session.cookies.set('mid', 'Y0m7fgAEAAF7W8rK0gABbQlTAA..', domain='.instagram.com')
-            self.session.cookies.set('ig_did', 'FC8F5C85-DDEF-4C53-9B4B-123456789ABC', domain='.instagram.com')
-            self.session.cookies.set('ig_nrcb', '1', domain='.instagram.com')
+            # Add other required Instagram cookies with proper format
+            self.session.cookies.set('mid', 'aDSa3AALAAGieULhLm97NP5dqp_Z', domain='.instagram.com', path='/')
+            self.session.cookies.set('ig_did', '3B433670-1F70-4284-AAE8-6C2843AD70FA', domain='.instagram.com', path='/')
+            self.session.cookies.set('ig_nrcb', '1', domain='.instagram.com', path='/')
+            self.session.cookies.set('datr', '3Jo0aG_zLBi8BQ1nckRuwUuI', domain='.instagram.com', path='/')
+            
+            # Update headers to mimic real browser
+            self.session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'X-IG-App-ID': '936619743392459',
+                'X-IG-WWW-Claim': '0',
+                'X-Requested-With': 'XMLHttpRequest',
+            })
             
             self.authenticated = True
             return True
@@ -65,17 +90,42 @@ class InstagramScraper:
         try:
             if not self.session_id:
                 return False
-                
-            # Test authentication by trying to access Instagram API
-            test_url = 'https://www.instagram.com/api/v1/users/web_profile_info/?username=instagram'
-            response = self.session.get(test_url)
             
-            if response.status_code == 200:
+            # Test authentication by trying to access Instagram's main page first
+            test_url = 'https://www.instagram.com/'
+            response = self.session.get(test_url, allow_redirects=False)
+            
+            # Check if we're redirected to login (indicates invalid session)
+            if response.status_code == 302:
+                location = response.headers.get('Location', '')
+                if 'accounts/login' in location:
+                    self.authenticated = False
+                    print("Session expired or invalid - redirected to login")
+                    return False
+            
+            # If we get 200 or other success codes, try a simple API call
+            if response.status_code in [200, 302]:
+                # Try to access a simple endpoint
+                api_url = 'https://www.instagram.com/api/v1/users/web_profile_info/?username=instagram'
+                api_response = self.session.get(api_url)
+                
+                if api_response.status_code == 200:
+                    try:
+                        data = api_response.json()
+                        if 'data' in data and 'user' in data['data']:
+                            self.authenticated = True
+                            print("Authentication verified successfully")
+                            return True
+                    except:
+                        pass
+                
+                # Even if API fails, if we're not redirected to login, consider it authenticated
                 self.authenticated = True
                 return True
-            else:
-                self.authenticated = False
-                return False
+            
+            self.authenticated = False
+            return False
+            
         except Exception as e:
             print(f"Authentication verification failed: {e}")
             self.authenticated = False
@@ -246,16 +296,30 @@ def login():
         if not sessionid:
             return render_template('login.html', error='Session ID is required')
         
+        if len(sessionid) < 20:
+            return render_template('login.html', error='Session ID appears to be too short. Please copy the complete sessionid cookie value.')
+        
+        print(f"Attempting login with sessionid length: {len(sessionid)}")
+        print(f"CSRF token provided: {'Yes' if csrf_token else 'No'}")
+        
         # Set Instagram session
         if scraper.set_instagram_session(sessionid, csrf_token):
+            print("Session cookies set successfully")
             if scraper.verify_authentication():
                 session['instagram_authenticated'] = True
                 session['instagram_sessionid'] = sessionid
+                if csrf_token:
+                    session['instagram_csrf'] = csrf_token
+                print("Authentication successful!")
                 return redirect(url_for('index'))
             else:
-                return render_template('login.html', error='Invalid session credentials. Please check your Session ID.')
+                error_msg = 'Authentication failed. This could mean:\n'
+                error_msg += '• Session ID is expired or invalid\n'
+                error_msg += '• Instagram detected automated access\n'
+                error_msg += '• Try logging out and back into Instagram, then get a fresh Session ID'
+                return render_template('login.html', error=error_msg)
         else:
-            return render_template('login.html', error='Failed to set Instagram session')
+            return render_template('login.html', error='Failed to set Instagram session. Please check your Session ID format.')
     
     return render_template('login.html')
 

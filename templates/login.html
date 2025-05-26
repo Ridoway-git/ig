@@ -168,13 +168,18 @@
         <div class="instructions">
             <h3>📋 How to get your Instagram Session ID:</h3>
             <ol>
-                <li>Open Instagram in your browser and login</li>
+                <li>Open Instagram in your browser and login to your account</li>
                 <li>Press <strong>F12</strong> to open Developer Tools</li>
                 <li>Go to <strong>Application</strong> tab (Chrome) or <strong>Storage</strong> tab (Firefox)</li>
                 <li>Click on <strong>Cookies</strong> → <strong>https://www.instagram.com</strong></li>
-                <li>Find the <strong>sessionid</strong> cookie and copy its value</li>
-                <li>(Optional) Also copy the <strong>csrftoken</strong> value for better reliability</li>
+                <li>Find the <strong>sessionid</strong> cookie and copy its <strong>entire value</strong></li>
+                <li>Find the <strong>csrftoken</strong> cookie and copy its value</li>
+                <li><strong>Important:</strong> Copy the complete values including any special characters</li>
             </ol>
+            
+            <div style="background: #e3f2fd; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                <strong>💡 Tip:</strong> Your sessionid should look like: <code>12345678901%3A95djnNqvnjytS5%3A3%3AAYdP...</code>
+            </div>
         </div>
         
         <form method="POST" action="{{ url_for('login') }}">
