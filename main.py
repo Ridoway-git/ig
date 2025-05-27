@@ -468,17 +468,30 @@ def process_scraping(usernames):
     # Clean up old files before starting new scraping
     cleanup_old_files()
     
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    # Create a more descriptive timestamp format
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    batch_id = f"batch_{timestamp}"
     
-    # Create more descriptive filenames
-    main_txt = f'scraped_data/all_profiles_{timestamp}.txt'
-    main_excel = f'scraped_data/all_profiles_{timestamp}.xlsx'
+    # Create organized directory structure
+    batch_dir = f'scraped_data/{batch_id}'
+    os.makedirs(batch_dir, exist_ok=True)
     
-    # Separate files for different post count groups with clear names
-    low_posts_txt = f'scraped_data/profiles_under_5_posts_{timestamp}.txt'
-    high_posts_txt = f'scraped_data/profiles_over_5_posts_{timestamp}.txt'
-    low_posts_excel = f'scraped_data/profiles_under_5_posts_{timestamp}.xlsx'
-    high_posts_excel = f'scraped_data/profiles_over_5_posts_{timestamp}.xlsx'
+    # Create more user-friendly filenames
+    files = {
+        'summary': f'{batch_dir}/00_Scraping_Summary.txt',
+        'all_profiles': {
+            'excel': f'{batch_dir}/01_All_Profiles.xlsx',
+            'text': f'{batch_dir}/01_All_Profiles.txt'
+        },
+        'low_posts': {
+            'excel': f'{batch_dir}/02_Profiles_1_to_5_Posts.xlsx',
+            'text': f'{batch_dir}/02_Profiles_1_to_5_Posts.txt'
+        },
+        'high_posts': {
+            'excel': f'{batch_dir}/03_Profiles_Over_5_Posts.xlsx',
+            'text': f'{batch_dir}/03_Profiles_Over_5_Posts.txt'
+        }
+    }
     
     successful_scrapes = 0
     failed_scrapes = 0
@@ -525,67 +538,105 @@ def process_scraping(usernames):
             else:
                 failed_scrapes += 1
     
-    # Write results to files
-    with open(main_txt, 'w', encoding='utf-8') as f:
-        f.write(f"Instagram Profile Data Scraping Results\n")
-        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Powered by: insta-scrape\n")
-        f.write("=" * 80 + "\n\n")
+    # Write detailed summary file
+    with open(files['summary'], 'w', encoding='utf-8') as f:
+        f.write("📊 INSTAGRAM PROFILE SCRAPING SUMMARY\n")
+        f.write("=" * 50 + "\n\n")
         
-        f.write("SCRAPING SUMMARY:\n")
+        f.write("📅 Scraping Details:\n")
         f.write("-" * 30 + "\n")
-        f.write(f"✅ Successful: {successful_scrapes}\n")
-        f.write(f"❌ Failed: {failed_scrapes}\n")
-        f.write(f"⏱️ Rate Limited: {rate_limited}\n")
-        f.write(f"📊 Total Processed: {len(usernames)}\n")
-        f.write(f"👥 Profiles with 1-5 Posts: {len(low_posts_data)}\n")
-        f.write(f"👥 Profiles with More than 5 Posts: {len(high_posts_data)}\n")
-        f.write(f"⏰ Completed At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Total Profiles: {len(usernames)}\n")
+        f.write(f"Batch ID: {batch_id}\n\n")
+        
+        f.write("📈 Results Summary:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"✅ Successfully Scraped: {successful_scrapes}\n")
+        f.write(f"❌ Failed Scrapes: {failed_scrapes}\n")
+        f.write(f"⏱️ Rate Limited: {rate_limited}\n\n")
+        
+        f.write("👥 Profile Categories:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"📱 Profiles with 1-5 Posts: {len(low_posts_data)}\n")
+        f.write(f"📸 Profiles with More than 5 Posts: {len(high_posts_data)}\n\n")
+        
+        f.write("📁 Generated Files:\n")
+        f.write("-" * 30 + "\n")
+        for category, file_info in files.items():
+            if category != 'summary':
+                f.write(f"• {os.path.basename(file_info['excel'])}\n")
+                f.write(f"• {os.path.basename(file_info['text'])}\n")
     
-    # Create separate files for each category
+    # Write detailed profile information to text files
+    def write_profile_text_file(filepath, profiles, title):
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"📊 {title}\n")
+            f.write("=" * 50 + "\n\n")
+            f.write(f"Total Profiles: {len(profiles)}\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            for profile in profiles:
+                f.write("Profile Information:\n")
+                f.write("-" * 30 + "\n")
+                f.write(f"👤 Username: {profile['username']}\n")
+                f.write(f"📝 Full Name: {profile['full_name']}\n")
+                f.write(f"📸 Posts Count: {profile['posts_count']}\n")
+                f.write(f"👥 Followers: {profile['followers']}\n")
+                f.write(f"➡️ Following: {profile['following']}\n")
+                f.write(f"📋 Biography: {profile['biography']}\n")
+                f.write(f"🔗 Profile URL: {profile['profile_url']}\n")
+                f.write(f"✔️ Verified: {'Yes' if profile.get('is_verified') else 'No'}\n")
+                f.write(f"🔒 Private: {'Yes' if profile.get('is_private') else 'No'}\n")
+                if profile.get('external_url'):
+                    f.write(f"🌐 External URL: {profile['external_url']}\n")
+                f.write(f"⏰ Scraped At: {profile['scraped_at']}\n")
+                f.write("\n" + "=" * 50 + "\n\n")
+    
+    # Write Excel files with organized columns
+    def write_excel_file(filepath, profiles, title):
+        df = pd.DataFrame(profiles)
+        # Reorder columns for better readability
+        columns = [
+            'username', 'full_name', 'posts_count', 'followers', 'following',
+            'biography', 'profile_url', 'is_verified', 'is_private',
+            'external_url', 'profile_pic_url', 'scraped_at'
+        ]
+        df = df[columns]
+        df.to_excel(filepath, index=False, engine='openpyxl')
+    
+    # Write all files
     try:
+        # Write all profiles
+        all_profiles = low_posts_data + high_posts_data
+        write_profile_text_file(files['all_profiles']['text'], all_profiles, "ALL INSTAGRAM PROFILES")
+        write_excel_file(files['all_profiles']['excel'], all_profiles, "All Profiles")
+        
+        # Write low posts profiles
         if low_posts_data:
-            df_low = pd.DataFrame(low_posts_data)
-            df_low.to_excel(low_posts_excel, index=False, engine='openpyxl')
-            
-            with open(low_posts_txt, 'w', encoding='utf-8') as f:
-                f.write("Instagram Profiles with 1-5 Posts\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(f"Total Profiles: {len(low_posts_data)}\n")
-                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                f.write("-" * 50 + "\n\n")
-                for profile in low_posts_data:
-                    f.write(f"Username: {profile['username']}\n")
-                    f.write(f"Posts Count: {profile['posts_count']}\n")
-                    f.write(f"Full Name: {profile['full_name']}\n")
-                    f.write(f"Followers: {profile['followers']}\n")
-                    f.write(f"Following: {profile['following']}\n")
-                    f.write("-" * 30 + "\n")
+            write_profile_text_file(files['low_posts']['text'], low_posts_data, "PROFILES WITH 1-5 POSTS")
+            write_excel_file(files['low_posts']['excel'], low_posts_data, "Profiles with 1-5 Posts")
         
+        # Write high posts profiles
         if high_posts_data:
-            df_high = pd.DataFrame(high_posts_data)
-            df_high.to_excel(high_posts_excel, index=False, engine='openpyxl')
-            
-            with open(high_posts_txt, 'w', encoding='utf-8') as f:
-                f.write("Instagram Profiles with More than 5 Posts\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(f"Total Profiles: {len(high_posts_data)}\n")
-                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                f.write("-" * 50 + "\n\n")
-                for profile in high_posts_data:
-                    f.write(f"Username: {profile['username']}\n")
-                    f.write(f"Posts Count: {profile['posts_count']}\n")
-                    f.write(f"Full Name: {profile['full_name']}\n")
-                    f.write(f"Followers: {profile['followers']}\n")
-                    f.write(f"Following: {profile['following']}\n")
-                    f.write("-" * 30 + "\n")
-        
-        # Create main Excel file with all data
-        df = pd.DataFrame(low_posts_data + high_posts_data)
-        df.to_excel(main_excel, index=False, engine='openpyxl')
+            write_profile_text_file(files['high_posts']['text'], high_posts_data, "PROFILES WITH MORE THAN 5 POSTS")
+            write_excel_file(files['high_posts']['excel'], high_posts_data, "Profiles with More than 5 Posts")
         
     except Exception as e:
-        print(f"Error creating Excel files: {e}")
+        print(f"Error creating files: {e}")
+        # Write error to summary file
+        with open(files['summary'], 'a', encoding='utf-8') as f:
+            f.write("\n❌ Errors:\n")
+            f.write("-" * 30 + "\n")
+            f.write(f"Error creating files: {str(e)}\n")
+    
+    return {
+        'batch_id': batch_id,
+        'successful': successful_scrapes,
+        'failed': failed_scrapes,
+        'rate_limited': rate_limited,
+        'low_posts': len(low_posts_data),
+        'high_posts': len(high_posts_data)
+    }
 
 @app.route('/delete/<filename>')
 def delete_file(filename):
