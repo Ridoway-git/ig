@@ -450,12 +450,19 @@ def process_scraping(usernames):
     txt_filename = f'scraped_data/instagram_data_{timestamp}.txt'
     excel_filename = f'scraped_data/instagram_data_{timestamp}.xlsx'
     
+    # Create separate files for different post count groups
+    low_posts_txt = f'scraped_data/low_posts_{timestamp}.txt'
+    high_posts_txt = f'scraped_data/high_posts_{timestamp}.txt'
+    low_posts_excel = f'scraped_data/low_posts_{timestamp}.xlsx'
+    high_posts_excel = f'scraped_data/high_posts_{timestamp}.xlsx'
+    
     successful_scrapes = 0
     failed_scrapes = 0
     rate_limited = 0
     
-    # Create a list to store all profile data for Excel
-    all_profiles_data = []
+    # Lists to store profile data for different groups
+    low_posts_data = []  # 1-5 posts
+    high_posts_data = []  # >5 posts
     
     with open(txt_filename, 'w', encoding='utf-8') as f:
         f.write(f"Instagram Profile Data Scraping Results\n")
@@ -485,14 +492,6 @@ def process_scraping(usernames):
                 else:
                     failed_scrapes += 1
                 
-                # Add error data to Excel list
-                all_profiles_data.append({
-                    'Username': username,
-                    'Status': 'Error',
-                    'Error Message': profile_data['error'],
-                    'Scraping Status': profile_data.get('scraping_status', 'unknown')
-                })
-                
                 f.write("\n")
                 continue
             
@@ -519,7 +518,7 @@ def process_scraping(usernames):
             if profile_data.get('posts_error'):
                 f.write(f"⚠️ Posts Info: {profile_data['posts_error']}\n")
             
-            # Add profile data to Excel list
+            # Prepare data for Excel
             excel_data = {
                 'Username': profile_data.get('username', username),
                 'Full Name': profile_data.get('full_name', 'N/A'),
@@ -536,7 +535,17 @@ def process_scraping(usernames):
                 'Note': profile_data.get('note', ''),
                 'Posts Error': profile_data.get('posts_error', '')
             }
-            all_profiles_data.append(excel_data)
+            
+            # Sort into appropriate group based on post count
+            try:
+                posts_count = int(profile_data.get('posts_count', 0))
+                if 1 <= posts_count <= 5:
+                    low_posts_data.append(excel_data)
+                else:
+                    high_posts_data.append(excel_data)
+            except (ValueError, TypeError):
+                # If posts count is not a valid number, add to high posts group
+                high_posts_data.append(excel_data)
             
             f.write("\n" + "=" * 80 + "\n\n")
             
@@ -551,14 +560,50 @@ def process_scraping(usernames):
         f.write(f"❌ Failed: {failed_scrapes}\n")
         f.write(f"⏱️ Rate Limited: {rate_limited}\n")
         f.write(f"📊 Total Processed: {len(usernames)}\n")
+        f.write(f"👥 Low Posts (1-5): {len(low_posts_data)}\n")
+        f.write(f"👥 High Posts (>5): {len(high_posts_data)}\n")
         f.write(f"⏰ Completed At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
-    # Create Excel file
+    # Create separate Excel files for each group
     try:
-        df = pd.DataFrame(all_profiles_data)
+        if low_posts_data:
+            df_low = pd.DataFrame(low_posts_data)
+            df_low.to_excel(low_posts_excel, index=False, engine='openpyxl')
+            
+            # Write low posts text file
+            with open(low_posts_txt, 'w', encoding='utf-8') as f:
+                f.write("Instagram Profiles with 1-5 Posts\n")
+                f.write("=" * 50 + "\n\n")
+                for profile in low_posts_data:
+                    f.write(f"Username: {profile['Username']}\n")
+                    f.write(f"Posts Count: {profile['Posts Count']}\n")
+                    f.write(f"Full Name: {profile['Full Name']}\n")
+                    f.write(f"Followers: {profile['Followers']}\n")
+                    f.write(f"Following: {profile['Following']}\n")
+                    f.write("-" * 30 + "\n")
+        
+        if high_posts_data:
+            df_high = pd.DataFrame(high_posts_data)
+            df_high.to_excel(high_posts_excel, index=False, engine='openpyxl')
+            
+            # Write high posts text file
+            with open(high_posts_txt, 'w', encoding='utf-8') as f:
+                f.write("Instagram Profiles with More than 5 Posts\n")
+                f.write("=" * 50 + "\n\n")
+                for profile in high_posts_data:
+                    f.write(f"Username: {profile['Username']}\n")
+                    f.write(f"Posts Count: {profile['Posts Count']}\n")
+                    f.write(f"Full Name: {profile['Full Name']}\n")
+                    f.write(f"Followers: {profile['Followers']}\n")
+                    f.write(f"Following: {profile['Following']}\n")
+                    f.write("-" * 30 + "\n")
+        
+        # Create main Excel file with all data
+        df = pd.DataFrame(low_posts_data + high_posts_data)
         df.to_excel(excel_filename, index=False, engine='openpyxl')
+        
     except Exception as e:
-        print(f"Error creating Excel file: {e}")
+        print(f"Error creating Excel files: {e}")
 
 @app.route('/files')
 def list_files():
