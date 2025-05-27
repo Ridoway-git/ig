@@ -232,6 +232,115 @@
         .login-btn:hover, .logout-btn:hover {
             opacity: 0.8;
         }
+
+        .file-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .file-filters {
+            display: flex;
+            gap: 10px;
+        }
+
+        .file-filters select {
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        .refresh-btn {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .refresh-icon {
+            animation: spin 2s linear infinite;
+        }
+
+        .file-item {
+            background: white;
+            border: 1px solid #e1e5e9;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: transform 0.2s;
+        }
+
+        .file-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .file-info {
+            flex-grow: 1;
+        }
+
+        .file-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .file-details {
+            display: flex;
+            gap: 15px;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .download-btn, .delete-btn {
+            padding: 8px 15px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .download-btn {
+            background: #28a745;
+            color: white;
+        }
+
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        .download-btn:hover {
+            background: #218838;
+        }
+
+        .delete-btn:hover {
+            background: #c82333;
+        }
+
+        .file-type {
+            background: #e9ecef;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .file-size {
+            color: #6c757d;
+        }
+
+        .file-date {
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -268,10 +377,27 @@
 
             <div class="files-section">
                 <h3>📁 Downloaded Files</h3>
-                <button class="btn" onclick="updateFileList()">Refresh File List</button>
-                <ul id="file-list" class="file-list">
+                <div class="file-controls">
+                    <button class="btn refresh-btn" onclick="updateFileList()">
+                        <span class="refresh-icon">🔄</span> Refresh Files
+                    </button>
+                    <div class="file-filters">
+                        <select id="fileTypeFilter" onchange="filterFiles()">
+                            <option value="all">All Files</option>
+                            <option value="Excel">Excel Files</option>
+                            <option value="Text">Text Files</option>
+                        </select>
+                        <select id="fileSort" onchange="sortFiles()">
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="name">Name</option>
+                            <option value="size">Size</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="file-list" class="file-list">
                     <!-- Files will be loaded here -->
-                </ul>
+                </div>
             </div>
         </div>
     </div>
@@ -401,49 +527,57 @@
 
         // Function to update file list
         function updateFileList() {
+            const fileList = document.getElementById('file-list');
+            fileList.innerHTML = '<div class="loading">Loading files...</div>';
+            
             fetch('/files')
                 .then(response => response.json())
                 .then(data => {
-                    const fileList = document.getElementById('file-list');
                     fileList.innerHTML = '';
                     
                     if (data.files && data.files.length > 0) {
                         data.files.forEach(file => {
-                            const li = document.createElement('li');
+                            const li = document.createElement('div');
                             li.className = 'file-item';
                             
-                            // Format file size
-                            const fileSize = formatFileSize(file.size);
-                            
-                            // Create file info
                             const fileInfo = document.createElement('div');
                             fileInfo.className = 'file-info';
                             fileInfo.innerHTML = `
                                 <div class="file-name">${file.name}</div>
                                 <div class="file-details">
                                     <span class="file-type">${file.type}</span>
-                                    <span class="file-size">${fileSize}</span>
+                                    <span class="file-size">${formatFileSize(file.size)}</span>
+                                    <span class="file-date">Modified: ${file.modified}</span>
                                 </div>
                             `;
                             
-                            // Create download button
+                            const fileActions = document.createElement('div');
+                            fileActions.className = 'file-actions';
+                            
                             const downloadBtn = document.createElement('a');
                             downloadBtn.href = `/download/${file.name}`;
                             downloadBtn.className = 'download-btn';
                             downloadBtn.textContent = 'Download';
                             
+                            const deleteBtn = document.createElement('button');
+                            deleteBtn.className = 'delete-btn';
+                            deleteBtn.textContent = 'Delete';
+                            deleteBtn.onclick = () => deleteFile(file.name);
+                            
+                            fileActions.appendChild(downloadBtn);
+                            fileActions.appendChild(deleteBtn);
+                            
                             li.appendChild(fileInfo);
-                            li.appendChild(downloadBtn);
+                            li.appendChild(fileActions);
                             fileList.appendChild(li);
                         });
                     } else {
-                        fileList.innerHTML = '<li class="file-item">No files found</li>';
+                        fileList.innerHTML = '<div class="no-files">No files found</div>';
                     }
                 })
                 .catch(error => {
                     console.error('Error fetching files:', error);
-                    const fileList = document.getElementById('file-list');
-                    fileList.innerHTML = '<li class="file-item">Error loading files</li>';
+                    fileList.innerHTML = '<div class="error">Error loading files</div>';
                 });
         }
 
@@ -485,6 +619,75 @@
             updateFileList();
             checkAuthStatus();
         });
+
+        // Add delete file function
+        function deleteFile(filename) {
+            if (confirm(`Are you sure you want to delete ${filename}?`)) {
+                fetch(`/delete/${filename}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('File deleted successfully');
+                            updateFileList();
+                        } else {
+                            alert('Error deleting file: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error deleting file');
+                    });
+            }
+        }
+
+        // Add file filtering function
+        function filterFiles() {
+            const filter = document.getElementById('fileTypeFilter').value;
+            const fileItems = document.querySelectorAll('.file-item');
+            
+            fileItems.forEach(item => {
+                const fileType = item.querySelector('.file-type').textContent;
+                if (filter === 'all' || fileType === filter) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
+        // Add file sorting function
+        function sortFiles() {
+            const sortBy = document.getElementById('fileSort').value;
+            const fileList = document.getElementById('file-list');
+            const fileItems = Array.from(fileList.children);
+            
+            fileItems.sort((a, b) => {
+                const aValue = a.querySelector('.file-name').textContent;
+                const bValue = b.querySelector('.file-name').textContent;
+                
+                switch(sortBy) {
+                    case 'name':
+                        return aValue.localeCompare(bValue);
+                    case 'size':
+                        const aSize = parseInt(a.querySelector('.file-size').textContent);
+                        const bSize = parseInt(b.querySelector('.file-size').textContent);
+                        return bSize - aSize;
+                    case 'oldest':
+                        const aDate = new Date(a.querySelector('.file-date').textContent.split(': ')[1]);
+                        const bDate = new Date(b.querySelector('.file-date').textContent.split(': ')[1]);
+                        return aDate - bDate;
+                    default: // newest
+                        const aDate2 = new Date(a.querySelector('.file-date').textContent.split(': ')[1]);
+                        const bDate2 = new Date(b.querySelector('.file-date').textContent.split(': ')[1]);
+                        return bDate2 - aDate2;
+                }
+            });
+            
+            fileItems.forEach(item => fileList.appendChild(item));
+        }
+
+        // Update file list every 30 seconds
+        setInterval(updateFileList, 30000);
     </script>
 
     <style>

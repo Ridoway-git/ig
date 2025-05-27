@@ -446,6 +446,9 @@ def scrape_usernames():
     })
 
 def process_scraping(usernames):
+    # Clean up old files before starting new scraping
+    cleanup_old_files()
+    
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
     # Create more descriptive filenames
@@ -613,18 +616,34 @@ def process_scraping(usernames):
     except Exception as e:
         print(f"Error creating Excel files: {e}")
 
+@app.route('/delete/<filename>')
+def delete_file(filename):
+    try:
+        file_path = os.path.join('scraped_data', filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            return jsonify({'success': True, 'message': f'File {filename} deleted successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'File not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/files')
 def list_files():
     try:
         files = []
         for f in os.listdir('scraped_data'):
             if f.endswith(('.txt', '.xlsx')):
+                file_path = os.path.join('scraped_data', f)
+                file_stats = os.stat(file_path)
                 files.append({
                     'name': f,
                     'type': 'Excel' if f.endswith('.xlsx') else 'Text',
-                    'size': os.path.getsize(os.path.join('scraped_data', f))
+                    'size': file_stats.st_size,
+                    'created': datetime.fromtimestamp(file_stats.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'modified': datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
                 })
-        files.sort(key=lambda x: x['name'], reverse=True)  # Most recent first
+        files.sort(key=lambda x: x['modified'], reverse=True)  # Most recent first
         return jsonify({'files': files})
     except Exception as e:
         return jsonify({'files': [], 'error': str(e)})
@@ -634,7 +653,12 @@ def download_file(filename):
     try:
         file_path = os.path.join('scraped_data', filename)
         if os.path.exists(file_path):
-            return send_file(file_path, as_attachment=True)
+            return send_file(
+                file_path,
+                as_attachment=True,
+                download_name=filename,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if filename.endswith('.xlsx') else 'text/plain'
+            )
         else:
             return jsonify({'error': 'File not found'}), 404
     except Exception as e:
@@ -647,6 +671,21 @@ def health_check():
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'scraped_files': len([f for f in os.listdir('scraped_data') if f.endswith('.txt')])
     })
+
+# Add cleanup function to remove old files
+def cleanup_old_files(days=7):
+    """Remove files older than specified days"""
+    try:
+        current_time = time.time()
+        for filename in os.listdir('scraped_data'):
+            file_path = os.path.join('scraped_data', filename)
+            if os.path.isfile(file_path):
+                file_time = os.path.getmtime(file_path)
+                if (current_time - file_time) > (days * 86400):  # 86400 seconds in a day
+                    os.remove(file_path)
+                    print(f"Removed old file: {filename}")
+    except Exception as e:
+        print(f"Error during cleanup: {e}")
 
 if __name__ == '__main__':
     print("🚀 Instagram Scraper Starting...")
