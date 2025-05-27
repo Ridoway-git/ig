@@ -544,13 +544,16 @@ def process_scraping(usernames):
             # Sort into appropriate group based on post count
             try:
                 posts_count = int(profile_data.get('posts_count', 0))
-                if 1 <= posts_count <= 5:
+                if posts_count == 0:
+                    # Skip profiles with 0 posts
+                    continue
+                elif 1 <= posts_count <= 5:
                     low_posts_data.append(excel_data)
                 else:
                     high_posts_data.append(excel_data)
             except (ValueError, TypeError):
-                # If posts count is not a valid number, add to high posts group
-                high_posts_data.append(excel_data)
+                # If posts count is not a valid number, skip the profile
+                continue
             
             f.write("\n" + "=" * 80 + "\n\n")
             
