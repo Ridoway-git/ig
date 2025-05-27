@@ -10,6 +10,9 @@ from urllib.parse import urlparse
 import re
 import pandas as pd
 import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+import random
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_change_this_in_production'
@@ -25,6 +28,10 @@ class InstagramScraper:
         self.authenticated = False
         self.session_id = None
         self.csrf_token = None
+        self.request_count = 0
+        self.last_request_time = 0
+        self.min_delay = 1.5  # Minimum delay between requests
+        self.max_delay = 2.5  # Maximum delay between requests
         
         # Basic headers to mimic a real browser
         self.session.headers.update({
@@ -350,6 +357,18 @@ class InstagramScraper:
         
         return posts_data
 
+    def rate_limit(self):
+        """Implement rate limiting to avoid getting blocked"""
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        
+        if time_since_last_request < self.min_delay:
+            sleep_time = random.uniform(self.min_delay, self.max_delay)
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+        self.request_count += 1
+
 scraper = InstagramScraper()
 
 @app.route('/')
@@ -469,99 +488,50 @@ def process_scraping(usernames):
     low_posts_data = []  # 1-5 posts
     high_posts_data = []  # >5 posts
     
+    # Create a queue for thread-safe data collection
+    data_queue = Queue()
+    
+    def scrape_profile_thread(username):
+        try:
+            profile_data = scraper.scrape_profile(username)
+            data_queue.put(('success', profile_data))
+        except Exception as e:
+            data_queue.put(('error', {'username': username, 'error': str(e)}))
+    
+    # Use ThreadPoolExecutor for parallel scraping
+    max_workers = min(5, len(usernames))  # Limit to 5 concurrent threads
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all scraping tasks
+        future_to_username = {
+            executor.submit(scrape_profile_thread, username): username 
+            for username in usernames
+        }
+        
+        # Process results as they complete
+        for future in as_completed(future_to_username):
+            status, data = data_queue.get()
+            if status == 'success':
+                try:
+                    posts_count = int(data.get('posts_count', 0))
+                    if posts_count == 0:
+                        continue
+                    elif 1 <= posts_count <= 5:
+                        low_posts_data.append(data)
+                    else:
+                        high_posts_data.append(data)
+                    successful_scrapes += 1
+                except (ValueError, TypeError):
+                    continue
+            else:
+                failed_scrapes += 1
+    
+    # Write results to files
     with open(main_txt, 'w', encoding='utf-8') as f:
         f.write(f"Instagram Profile Data Scraping Results\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Powered by: insta-scrape \n")
+        f.write(f"Powered by: insta-scrape\n")
         f.write("=" * 80 + "\n\n")
         
-        f.write("IMPORTANT NOTES:\n")
-        f.write("- Instagram heavily restricts automated data access\n")
-        f.write("- This tool provides basic public profile information only\n")
-        f.write("- For detailed analytics, use Instagram Business API\n")
-        f.write("- Respect Instagram's Terms of Service and rate limits\n")
-        f.write("=" * 80 + "\n\n")
-        
-        for i, username in enumerate(usernames, 1):
-            f.write(f"PROFILE {i}/{len(usernames)}: @{username}\n")
-            f.write("-" * 50 + "\n")
-            
-            profile_data = scraper.scrape_profile(username)
-            
-            if 'error' in profile_data:
-                f.write(f"❌ ERROR: {profile_data['error']}\n")
-                
-                if profile_data.get('scraping_status') == 'rate_limited':
-                    rate_limited += 1
-                    f.write("💡 TIP: Try again later when rate limits reset\n")
-                else:
-                    failed_scrapes += 1
-                
-                f.write("\n")
-                continue
-            
-            successful_scrapes += 1
-            
-            # Write profile information
-            f.write(f"✅ Successfully scraped: @{profile_data.get('username', username)}\n")
-            f.write(f"📁 Profile URL: {profile_data.get('profile_url', 'N/A')}\n")
-            f.write(f"👤 Full Name: {profile_data.get('full_name', 'N/A')}\n")
-            f.write(f"📝 Biography: {profile_data.get('biography', 'N/A')}\n")
-            f.write(f"👥 Followers: {profile_data.get('followers', 'N/A')}\n")
-            f.write(f"➡️ Following: {profile_data.get('following', 'N/A')}\n")
-            f.write(f"📸 Posts Count: {profile_data.get('posts_count', 'N/A')}\n")
-            f.write(f"✔️ Verified: {'Yes' if profile_data.get('is_verified') else 'No'}\n")
-            f.write(f"🔒 Private: {'Yes' if profile_data.get('is_private') else 'No'}\n")
-            f.write(f"🔗 External URL: {profile_data.get('external_url', 'N/A')}\n")
-            f.write(f"🖼️ Profile Picture: {profile_data.get('profile_pic_url', 'N/A')}\n")
-            f.write(f"⏰ Scraped At: {profile_data.get('scraped_at')}\n")
-            
-            # Add notes if any
-            if profile_data.get('note'):
-                f.write(f"📋 Note: {profile_data['note']}\n")
-            
-            if profile_data.get('posts_error'):
-                f.write(f"⚠️ Posts Info: {profile_data['posts_error']}\n")
-            
-            # Prepare data for Excel
-            excel_data = {
-                'Username': profile_data.get('username', username),
-                'Full Name': profile_data.get('full_name', 'N/A'),
-                'Biography': profile_data.get('biography', 'N/A'),
-                'Followers': profile_data.get('followers', 'N/A'),
-                'Following': profile_data.get('following', 'N/A'),
-                'Posts Count': profile_data.get('posts_count', 'N/A'),
-                'Verified': 'Yes' if profile_data.get('is_verified') else 'No',
-                'Private': 'Yes' if profile_data.get('is_private') else 'No',
-                'External URL': profile_data.get('external_url', 'N/A'),
-                'Profile Picture URL': profile_data.get('profile_pic_url', 'N/A'),
-                'Scraped At': profile_data.get('scraped_at', 'N/A'),
-                'Status': 'Success',
-                'Note': profile_data.get('note', ''),
-                'Posts Error': profile_data.get('posts_error', '')
-            }
-            
-            # Sort into appropriate group based on post count
-            try:
-                posts_count = int(profile_data.get('posts_count', 0))
-                if posts_count == 0:
-                    # Skip profiles with 0 posts
-                    continue
-                elif 1 <= posts_count <= 5:
-                    low_posts_data.append(excel_data)
-                else:
-                    high_posts_data.append(excel_data)
-            except (ValueError, TypeError):
-                # If posts count is not a valid number, skip the profile
-                continue
-            
-            f.write("\n" + "=" * 80 + "\n\n")
-            
-            # Add delay between requests to be respectful
-            if i < len(usernames):  # Don't sleep after the last username
-                time.sleep(3)
-        
-        # Write summary
         f.write("SCRAPING SUMMARY:\n")
         f.write("-" * 30 + "\n")
         f.write(f"✅ Successful: {successful_scrapes}\n")
@@ -572,13 +542,12 @@ def process_scraping(usernames):
         f.write(f"👥 Profiles with More than 5 Posts: {len(high_posts_data)}\n")
         f.write(f"⏰ Completed At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
-    # Create separate Excel files for each group
+    # Create separate files for each category
     try:
         if low_posts_data:
             df_low = pd.DataFrame(low_posts_data)
             df_low.to_excel(low_posts_excel, index=False, engine='openpyxl')
             
-            # Write low posts text file
             with open(low_posts_txt, 'w', encoding='utf-8') as f:
                 f.write("Instagram Profiles with 1-5 Posts\n")
                 f.write("=" * 50 + "\n\n")
@@ -586,18 +555,17 @@ def process_scraping(usernames):
                 f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 f.write("-" * 50 + "\n\n")
                 for profile in low_posts_data:
-                    f.write(f"Username: {profile['Username']}\n")
-                    f.write(f"Posts Count: {profile['Posts Count']}\n")
-                    f.write(f"Full Name: {profile['Full Name']}\n")
-                    f.write(f"Followers: {profile['Followers']}\n")
-                    f.write(f"Following: {profile['Following']}\n")
+                    f.write(f"Username: {profile['username']}\n")
+                    f.write(f"Posts Count: {profile['posts_count']}\n")
+                    f.write(f"Full Name: {profile['full_name']}\n")
+                    f.write(f"Followers: {profile['followers']}\n")
+                    f.write(f"Following: {profile['following']}\n")
                     f.write("-" * 30 + "\n")
         
         if high_posts_data:
             df_high = pd.DataFrame(high_posts_data)
             df_high.to_excel(high_posts_excel, index=False, engine='openpyxl')
             
-            # Write high posts text file
             with open(high_posts_txt, 'w', encoding='utf-8') as f:
                 f.write("Instagram Profiles with More than 5 Posts\n")
                 f.write("=" * 50 + "\n\n")
@@ -605,11 +573,11 @@ def process_scraping(usernames):
                 f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 f.write("-" * 50 + "\n\n")
                 for profile in high_posts_data:
-                    f.write(f"Username: {profile['Username']}\n")
-                    f.write(f"Posts Count: {profile['Posts Count']}\n")
-                    f.write(f"Full Name: {profile['Full Name']}\n")
-                    f.write(f"Followers: {profile['Followers']}\n")
-                    f.write(f"Following: {profile['Following']}\n")
+                    f.write(f"Username: {profile['username']}\n")
+                    f.write(f"Posts Count: {profile['posts_count']}\n")
+                    f.write(f"Full Name: {profile['full_name']}\n")
+                    f.write(f"Followers: {profile['followers']}\n")
+                    f.write(f"Following: {profile['following']}\n")
                     f.write("-" * 30 + "\n")
         
         # Create main Excel file with all data
