@@ -32,16 +32,22 @@ class InstagramScraper:
         self.last_request_time = 0
         self.min_delay = 1.5  # Minimum delay between requests
         self.max_delay = 2.5  # Maximum delay between requests
+        self.max_retries = 3  # Maximum number of retries for failed requests
         
         # Basic headers to mimic a real browser
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'X-IG-App-ID': '936619743392459',
+            'X-IG-WWW-Claim': '0',
             'X-Requested-With': 'XMLHttpRequest',
+            'Referer': 'https://www.instagram.com/',
         })
     
     def set_instagram_session(self, sessionid, csrf_token=None):
@@ -117,21 +123,16 @@ class InstagramScraper:
             if not self.session_id:
                 return False
             
-            # Test authentication by trying to access Instagram's main page first
+            self.rate_limit()
             test_url = 'https://www.instagram.com/'
             response = self.session.get(test_url, allow_redirects=False)
             
-            # Check if we're redirected to login (indicates invalid session)
-            if response.status_code == 302:
-                location = response.headers.get('Location', '')
-                if 'accounts/login' in location:
-                    self.authenticated = False
-                    print("Session expired or invalid - redirected to login")
-                    return False
+            if response.status_code == 302 and 'accounts/login' in response.headers.get('Location', ''):
+                self.authenticated = False
+                return False
             
-            # If we get 200 or other success codes, try a simple API call
             if response.status_code in [200, 302]:
-                # Try to access a simple endpoint
+                self.rate_limit()
                 api_url = 'https://www.instagram.com/api/v1/users/web_profile_info/?username=instagram'
                 api_response = self.session.get(api_url)
                 
@@ -140,12 +141,10 @@ class InstagramScraper:
                         data = api_response.json()
                         if 'data' in data and 'user' in data['data']:
                             self.authenticated = True
-                            print("Authentication verified successfully")
                             return True
                     except:
                         pass
                 
-                # Even if API fails, if we're not redirected to login, consider it authenticated
                 self.authenticated = True
                 return True
             
@@ -178,11 +177,12 @@ class InstagramScraper:
         return username
     
     def scrape_profile(self, username):
+        """Scrape Instagram profile with improved error handling and retries"""
         try:
             # Check if authenticated
             if not self.authenticated:
                 return {
-                    'error': f'Instagram authentication required. Please login first.',
+                    'error': 'Instagram authentication required. Please login first.',
                     'username': username,
                     'scraping_status': 'auth_required'
                 }
@@ -196,104 +196,41 @@ class InstagramScraper:
             # Create profile URL
             profile_url = f'https://www.instagram.com/{clean_user}/'
             
-            # Try to create and scrape profile with retry logic
-            max_retries = 3
-            retry_delay = 5
-            
-            for attempt in range(max_retries):
+            # Try to scrape with retries
+            for attempt in range(self.max_retries):
                 try:
-                    # Create profile with proper session handling
-                    profile = Profile(profile_url)
+                    self.rate_limit()  # Implement rate limiting
                     
-                    # Properly inject our authenticated session into the profile
-                    profile._session = self.session
+                    # First try the API endpoint
+                    api_url = f'https://www.instagram.com/api/v1/users/web_profile_info/?username={clean_user}'
+                    response = self.session.get(api_url)
                     
-                    # Create headers with cookies for instascrape
-                    scrape_headers = self.session.headers.copy()
+                    if response.status_code == 200:
+                        data = response.json()
+                        if 'data' in data and 'user' in data['data']:
+                            user_data = data['data']['user']
+                            return self._format_profile_data(user_data, clean_user)
                     
-                    # Get cookies as a string for the Cookie header
-                    cookie_string = '; '.join([f'{cookie.name}={cookie.value}' for cookie in self.session.cookies])
-                    scrape_headers['Cookie'] = cookie_string
+                    # If API fails, try the fallback method
+                    return self._scrape_profile_fallback(clean_user)
                     
-                    # Scrape the profile data with proper headers and session
-                    profile.scrape(headers=scrape_headers, session=self.session)
-                    
-                    # Extract basic profile information
-                    profile_data = {
-                        'username': clean_user,
-                        'profile_url': profile_url,
-                        'full_name': getattr(profile, 'full_name', 'N/A'),
-                        'biography': getattr(profile, 'biography', 'N/A'),
-                        'followers': getattr(profile, 'followers', 'N/A'),
-                        'following': getattr(profile, 'following', 'N/A'),
-                        'posts_count': getattr(profile, 'posts', 'N/A'),
-                        'is_verified': getattr(profile, 'is_verified', False),
-                        'is_private': getattr(profile, 'is_private', False),
-                        'external_url': getattr(profile, 'external_url', 'N/A'),
-                        'profile_pic_url': getattr(profile, 'profile_pic_url', 'N/A'),
-                        'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'scraping_status': 'success',
-                        'authenticated': True,
-                        'method': 'insta-scrape'
-                    }
-                    
-                    # Try to get basic post count information
-                    try:
-                        # Attempt to get recent posts if available and profile is public
-                        if not profile_data.get('is_private', True):
-                            posts_data = self.get_basic_posts_info(profile)
-                            profile_data['recent_posts'] = posts_data
-                        else:
-                            profile_data['recent_posts'] = []
-                            profile_data['note'] = 'Profile is private - limited data available'
-                    except Exception as posts_error:
-                        profile_data['recent_posts'] = []
-                        profile_data['posts_error'] = f'Could not retrieve posts: {str(posts_error)}'
-                    
-                    return profile_data
-                    
-                except Exception as e:
-                    error_msg = str(e)
-                    print(f"Attempt {attempt + 1} failed for {clean_user}: {error_msg}")
-                    
-                    # Check if it's an authentication error
-                    if 'unauthorized' in error_msg.lower() or '401' in error_msg or 'login' in error_msg.lower():
-                        self.authenticated = False
+                except requests.exceptions.RequestException as e:
+                    if attempt == self.max_retries - 1:
                         return {
-                            'error': f'Instagram authentication failed for {clean_user}. Please check your session credentials.',
-                            'username': clean_user,
-                            'scraping_status': 'auth_failed'
-                        }
-                    
-                    # Check if it's a rate limit error
-                    if 'rate limit' in error_msg.lower() or '429' in error_msg:
-                        if attempt < max_retries - 1:
-                            print(f"Rate limited, waiting {retry_delay} seconds before retry...")
-                            time.sleep(retry_delay)
-                            retry_delay *= 2  # Exponential backoff
-                            continue
-                        else:
-                            return {
-                                'error': f'Instagram rate limit reached for {clean_user}. Please try again later.',
-                                'username': clean_user,
-                                'scraping_status': 'rate_limited'
-                            }
-                    
-                    # If it's the last attempt, try the fallback method
-                    if attempt == max_retries - 1:
-                        print(f"Trying fallback method for {clean_user}")
-                        fallback_result = self.scrape_profile_fallback(clean_user)
-                        if fallback_result and 'error' not in fallback_result:
-                            return fallback_result
-                        
-                        return {
-                            'error': f'Failed to scrape {clean_user} after {max_retries} attempts: {error_msg}',
+                            'error': f'Failed to scrape {clean_user} after {self.max_retries} attempts: {str(e)}',
                             'username': clean_user,
                             'scraping_status': 'failed'
                         }
+                    time.sleep(2 ** attempt)  # Exponential backoff
                     
-                    # Wait before retry
-                    time.sleep(retry_delay)
+                except Exception as e:
+                    if attempt == self.max_retries - 1:
+                        return {
+                            'error': f'Unexpected error scraping {clean_user}: {str(e)}',
+                            'username': clean_user,
+                            'scraping_status': 'error'
+                        }
+                    time.sleep(2 ** attempt)
             
         except Exception as e:
             return {
@@ -301,61 +238,85 @@ class InstagramScraper:
                 'username': username,
                 'scraping_status': 'error'
             }
-    
-    def scrape_profile_fallback(self, username):
-        """Fallback method using Instagram's web API directly"""
+
+    def _format_profile_data(self, user_data, username):
+        """Format profile data consistently"""
         try:
-            api_url = f'https://www.instagram.com/api/v1/users/web_profile_info/?username={username}'
-            
-            response = self.session.get(api_url)
+            return {
+                'username': username,
+                'profile_url': f'https://www.instagram.com/{username}/',
+                'full_name': user_data.get('full_name', 'N/A'),
+                'biography': user_data.get('biography', 'N/A'),
+                'followers': user_data.get('edge_followed_by', {}).get('count', 'N/A'),
+                'following': user_data.get('edge_follow', {}).get('count', 'N/A'),
+                'posts_count': user_data.get('edge_owner_to_timeline_media', {}).get('count', 'N/A'),
+                'is_verified': user_data.get('is_verified', False),
+                'is_private': user_data.get('is_private', False),
+                'external_url': user_data.get('external_url', 'N/A'),
+                'profile_pic_url': user_data.get('profile_pic_url_hd', 'N/A'),
+                'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'scraping_status': 'success',
+                'authenticated': True,
+                'method': 'api'
+            }
+        except Exception as e:
+            print(f"Error formatting profile data for {username}: {e}")
+            return None
+
+    def _scrape_profile_fallback(self, username):
+        """Fallback method using direct HTML scraping"""
+        try:
+            self.rate_limit()
+            profile_url = f'https://www.instagram.com/{username}/'
+            response = self.session.get(profile_url)
             
             if response.status_code == 200:
-                data = response.json()
+                # Extract data from HTML using regex
+                html_content = response.text
                 
-                if 'data' in data and 'user' in data['data']:
-                    user_data = data['data']['user']
-                    
-                    return {
-                        'username': username,
-                        'profile_url': f'https://www.instagram.com/{username}/',
-                        'full_name': user_data.get('full_name', 'N/A'),
-                        'biography': user_data.get('biography', 'N/A'),
-                        'followers': user_data.get('edge_followed_by', {}).get('count', 'N/A'),
-                        'following': user_data.get('edge_follow', {}).get('count', 'N/A'),
-                        'posts_count': user_data.get('edge_owner_to_timeline_media', {}).get('count', 'N/A'),
-                        'is_verified': user_data.get('is_verified', False),
-                        'is_private': user_data.get('is_private', False),
-                        'external_url': user_data.get('external_url', 'N/A'),
-                        'profile_pic_url': user_data.get('profile_pic_url_hd', 'N/A'),
-                        'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'scraping_status': 'success',
-                        'authenticated': True,
-                        'method': 'api_fallback'
-                    }
-                else:
-                    print(f"No user data found in API response for {username}")
-                    return None
+                # Extract basic profile information
+                profile_data = {
+                    'username': username,
+                    'profile_url': profile_url,
+                    'full_name': self._extract_from_html(html_content, r'"full_name":"([^"]+)"'),
+                    'biography': self._extract_from_html(html_content, r'"biography":"([^"]+)"'),
+                    'followers': self._extract_from_html(html_content, r'"edge_followed_by":{"count":(\d+)}'),
+                    'following': self._extract_from_html(html_content, r'"edge_follow":{"count":(\d+)}'),
+                    'posts_count': self._extract_from_html(html_content, r'"edge_owner_to_timeline_media":{"count":(\d+)}'),
+                    'is_verified': 'is_verified":true' in html_content,
+                    'is_private': 'is_private":true' in html_content,
+                    'external_url': self._extract_from_html(html_content, r'"external_url":"([^"]+)"'),
+                    'profile_pic_url': self._extract_from_html(html_content, r'"profile_pic_url_hd":"([^"]+)"'),
+                    'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'scraping_status': 'success',
+                    'authenticated': True,
+                    'method': 'fallback'
+                }
+                
+                return profile_data
             else:
-                print(f"API request failed with status {response.status_code}")
-                return None
+                return {
+                    'error': f'Failed to access profile page for {username}',
+                    'username': username,
+                    'scraping_status': 'failed'
+                }
                 
         except Exception as e:
-            print(f"Fallback scraping failed for {username}: {e}")
-            return None
-    
-    def get_basic_posts_info(self, profile):
-        """Try to get basic post information"""
-        posts_data = []
+            return {
+                'error': f'Fallback scraping failed for {username}: {str(e)}',
+                'username': username,
+                'scraping_status': 'failed'
+            }
+
+    def _extract_from_html(self, html_content, pattern):
+        """Extract data from HTML using regex"""
         try:
-            # This is a simplified approach since Instagram heavily restricts post data access
-            posts_data.append({
-                'note': 'Post details require Instagram authentication',
-                'suggestion': 'Use Instagram Business API for detailed post analytics'
-            })
-        except Exception as e:
-            print(f"Error getting posts info: {e}")
-        
-        return posts_data
+            match = re.search(pattern, html_content)
+            if match:
+                return match.group(1)
+            return 'N/A'
+        except:
+            return 'N/A'
 
     def rate_limit(self):
         """Implement rate limiting to avoid getting blocked"""
