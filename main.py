@@ -447,14 +447,16 @@ def scrape_usernames():
 
 def process_scraping(usernames):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    txt_filename = f'scraped_data/instagram_data_{timestamp}.txt'
-    excel_filename = f'scraped_data/instagram_data_{timestamp}.xlsx'
     
-    # Create separate files for different post count groups
-    low_posts_txt = f'scraped_data/low_posts_{timestamp}.txt'
-    high_posts_txt = f'scraped_data/high_posts_{timestamp}.txt'
-    low_posts_excel = f'scraped_data/low_posts_{timestamp}.xlsx'
-    high_posts_excel = f'scraped_data/high_posts_{timestamp}.xlsx'
+    # Create more descriptive filenames
+    main_txt = f'scraped_data/all_profiles_{timestamp}.txt'
+    main_excel = f'scraped_data/all_profiles_{timestamp}.xlsx'
+    
+    # Separate files for different post count groups with clear names
+    low_posts_txt = f'scraped_data/profiles_under_5_posts_{timestamp}.txt'
+    high_posts_txt = f'scraped_data/profiles_over_5_posts_{timestamp}.txt'
+    low_posts_excel = f'scraped_data/profiles_under_5_posts_{timestamp}.xlsx'
+    high_posts_excel = f'scraped_data/profiles_over_5_posts_{timestamp}.xlsx'
     
     successful_scrapes = 0
     failed_scrapes = 0
@@ -464,10 +466,10 @@ def process_scraping(usernames):
     low_posts_data = []  # 1-5 posts
     high_posts_data = []  # >5 posts
     
-    with open(txt_filename, 'w', encoding='utf-8') as f:
+    with open(main_txt, 'w', encoding='utf-8') as f:
         f.write(f"Instagram Profile Data Scraping Results\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Powered by: insta-scrape library\n")
+        f.write(f"Powered by: insta-scrape \n")
         f.write("=" * 80 + "\n\n")
         
         f.write("IMPORTANT NOTES:\n")
@@ -560,8 +562,8 @@ def process_scraping(usernames):
         f.write(f"❌ Failed: {failed_scrapes}\n")
         f.write(f"⏱️ Rate Limited: {rate_limited}\n")
         f.write(f"📊 Total Processed: {len(usernames)}\n")
-        f.write(f"👥 Low Posts (1-5): {len(low_posts_data)}\n")
-        f.write(f"👥 High Posts (>5): {len(high_posts_data)}\n")
+        f.write(f"👥 Profiles with 1-5 Posts: {len(low_posts_data)}\n")
+        f.write(f"👥 Profiles with More than 5 Posts: {len(high_posts_data)}\n")
         f.write(f"⏰ Completed At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
     # Create separate Excel files for each group
@@ -574,6 +576,9 @@ def process_scraping(usernames):
             with open(low_posts_txt, 'w', encoding='utf-8') as f:
                 f.write("Instagram Profiles with 1-5 Posts\n")
                 f.write("=" * 50 + "\n\n")
+                f.write(f"Total Profiles: {len(low_posts_data)}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("-" * 50 + "\n\n")
                 for profile in low_posts_data:
                     f.write(f"Username: {profile['Username']}\n")
                     f.write(f"Posts Count: {profile['Posts Count']}\n")
@@ -590,6 +595,9 @@ def process_scraping(usernames):
             with open(high_posts_txt, 'w', encoding='utf-8') as f:
                 f.write("Instagram Profiles with More than 5 Posts\n")
                 f.write("=" * 50 + "\n\n")
+                f.write(f"Total Profiles: {len(high_posts_data)}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("-" * 50 + "\n\n")
                 for profile in high_posts_data:
                     f.write(f"Username: {profile['Username']}\n")
                     f.write(f"Posts Count: {profile['Posts Count']}\n")
@@ -600,7 +608,7 @@ def process_scraping(usernames):
         
         # Create main Excel file with all data
         df = pd.DataFrame(low_posts_data + high_posts_data)
-        df.to_excel(excel_filename, index=False, engine='openpyxl')
+        df.to_excel(main_excel, index=False, engine='openpyxl')
         
     except Exception as e:
         print(f"Error creating Excel files: {e}")
