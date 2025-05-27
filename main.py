@@ -622,14 +622,48 @@ def process_scraping(usernames):
 @app.route('/delete/<filename>')
 def delete_file(filename):
     try:
-        file_path = os.path.join('scraped_data', filename)
-        if os.path.exists(file_path):
+        # Ensure the filename is safe and doesn't contain any directory traversal
+        safe_filename = os.path.basename(filename)
+        
+        # Check if file exists in scraped_data directory
+        file_path = os.path.join('scraped_data', safe_filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({
+                'success': False, 
+                'error': f'File {safe_filename} not found'
+            }), 404
+        
+        # Check if it's a valid file type
+        if not safe_filename.endswith(('.txt', '.xlsx')):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid file type. Only .txt and .xlsx files can be deleted'
+            }), 400
+        
+        # Try to delete the file
+        try:
             os.remove(file_path)
-            return jsonify({'success': True, 'message': f'File {filename} deleted successfully'})
-        else:
-            return jsonify({'success': False, 'error': 'File not found'}), 404
+            return jsonify({
+                'success': True,
+                'message': f'File {safe_filename} deleted successfully'
+            })
+        except PermissionError:
+            return jsonify({
+                'success': False,
+                'error': f'Permission denied: Cannot delete {safe_filename}'
+            }), 403
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Error deleting file: {str(e)}'
+            }), 500
+            
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}'
+        }), 500
 
 @app.route('/files')
 def list_files():
@@ -638,18 +672,26 @@ def list_files():
         for f in os.listdir('scraped_data'):
             if f.endswith(('.txt', '.xlsx')):
                 file_path = os.path.join('scraped_data', f)
-                file_stats = os.stat(file_path)
-                files.append({
-                    'name': f,
-                    'type': 'Excel' if f.endswith('.xlsx') else 'Text',
-                    'size': file_stats.st_size,
-                    'created': datetime.fromtimestamp(file_stats.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
-                    'modified': datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-                })
+                try:
+                    file_stats = os.stat(file_path)
+                    files.append({
+                        'name': f,
+                        'type': 'Excel' if f.endswith('.xlsx') else 'Text',
+                        'size': file_stats.st_size,
+                        'created': datetime.fromtimestamp(file_stats.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
+                        'modified': datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+                except Exception as e:
+                    print(f"Error getting stats for {f}: {e}")
+                    continue
+                    
         files.sort(key=lambda x: x['modified'], reverse=True)  # Most recent first
         return jsonify({'files': files})
     except Exception as e:
-        return jsonify({'files': [], 'error': str(e)})
+        return jsonify({
+            'files': [], 
+            'error': f'Error listing files: {str(e)}'
+        }), 500
 
 @app.route('/download/<filename>')
 def download_file(filename):
