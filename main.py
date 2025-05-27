@@ -10,9 +10,6 @@ from urllib.parse import urlparse
 import re
 import pandas as pd
 import io
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
-import random
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_change_this_in_production'
@@ -28,26 +25,16 @@ class InstagramScraper:
         self.authenticated = False
         self.session_id = None
         self.csrf_token = None
-        self.request_count = 0
-        self.last_request_time = 0
-        self.min_delay = 1.5  # Minimum delay between requests
-        self.max_delay = 2.5  # Maximum delay between requests
-        self.max_retries = 3  # Maximum number of retries for failed requests
         
         # Basic headers to mimic a real browser
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
             'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'X-IG-App-ID': '936619743392459',
-            'X-IG-WWW-Claim': '0',
+            'Upgrade-Insecure-Requests': '1',
             'X-Requested-With': 'XMLHttpRequest',
-            'Referer': 'https://www.instagram.com/',
         })
     
     def set_instagram_session(self, sessionid, csrf_token=None):
@@ -123,16 +110,21 @@ class InstagramScraper:
             if not self.session_id:
                 return False
             
-            self.rate_limit()
+            # Test authentication by trying to access Instagram's main page first
             test_url = 'https://www.instagram.com/'
             response = self.session.get(test_url, allow_redirects=False)
             
-            if response.status_code == 302 and 'accounts/login' in response.headers.get('Location', ''):
-                self.authenticated = False
-                return False
+            # Check if we're redirected to login (indicates invalid session)
+            if response.status_code == 302:
+                location = response.headers.get('Location', '')
+                if 'accounts/login' in location:
+                    self.authenticated = False
+                    print("Session expired or invalid - redirected to login")
+                    return False
             
+            # If we get 200 or other success codes, try a simple API call
             if response.status_code in [200, 302]:
-                self.rate_limit()
+                # Try to access a simple endpoint
                 api_url = 'https://www.instagram.com/api/v1/users/web_profile_info/?username=instagram'
                 api_response = self.session.get(api_url)
                 
@@ -141,10 +133,12 @@ class InstagramScraper:
                         data = api_response.json()
                         if 'data' in data and 'user' in data['data']:
                             self.authenticated = True
+                            print("Authentication verified successfully")
                             return True
                     except:
                         pass
                 
+                # Even if API fails, if we're not redirected to login, consider it authenticated
                 self.authenticated = True
                 return True
             
@@ -177,12 +171,11 @@ class InstagramScraper:
         return username
     
     def scrape_profile(self, username):
-        """Scrape Instagram profile with improved error handling and retries"""
         try:
             # Check if authenticated
             if not self.authenticated:
                 return {
-                    'error': 'Instagram authentication required. Please login first.',
+                    'error': f'Instagram authentication required. Please login first.',
                     'username': username,
                     'scraping_status': 'auth_required'
                 }
@@ -196,41 +189,104 @@ class InstagramScraper:
             # Create profile URL
             profile_url = f'https://www.instagram.com/{clean_user}/'
             
-            # Try to scrape with retries
-            for attempt in range(self.max_retries):
+            # Try to create and scrape profile with retry logic
+            max_retries = 3
+            retry_delay = 5
+            
+            for attempt in range(max_retries):
                 try:
-                    self.rate_limit()  # Implement rate limiting
+                    # Create profile with proper session handling
+                    profile = Profile(profile_url)
                     
-                    # First try the API endpoint
-                    api_url = f'https://www.instagram.com/api/v1/users/web_profile_info/?username={clean_user}'
-                    response = self.session.get(api_url)
+                    # Properly inject our authenticated session into the profile
+                    profile._session = self.session
                     
-                    if response.status_code == 200:
-                        data = response.json()
-                        if 'data' in data and 'user' in data['data']:
-                            user_data = data['data']['user']
-                            return self._format_profile_data(user_data, clean_user)
+                    # Create headers with cookies for instascrape
+                    scrape_headers = self.session.headers.copy()
                     
-                    # If API fails, try the fallback method
-                    return self._scrape_profile_fallback(clean_user)
+                    # Get cookies as a string for the Cookie header
+                    cookie_string = '; '.join([f'{cookie.name}={cookie.value}' for cookie in self.session.cookies])
+                    scrape_headers['Cookie'] = cookie_string
                     
-                except requests.exceptions.RequestException as e:
-                    if attempt == self.max_retries - 1:
+                    # Scrape the profile data with proper headers and session
+                    profile.scrape(headers=scrape_headers, session=self.session)
+                    
+                    # Extract basic profile information
+                    profile_data = {
+                        'username': clean_user,
+                        'profile_url': profile_url,
+                        'full_name': getattr(profile, 'full_name', 'N/A'),
+                        'biography': getattr(profile, 'biography', 'N/A'),
+                        'followers': getattr(profile, 'followers', 'N/A'),
+                        'following': getattr(profile, 'following', 'N/A'),
+                        'posts_count': getattr(profile, 'posts', 'N/A'),
+                        'is_verified': getattr(profile, 'is_verified', False),
+                        'is_private': getattr(profile, 'is_private', False),
+                        'external_url': getattr(profile, 'external_url', 'N/A'),
+                        'profile_pic_url': getattr(profile, 'profile_pic_url', 'N/A'),
+                        'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'scraping_status': 'success',
+                        'authenticated': True,
+                        'method': 'insta-scrape'
+                    }
+                    
+                    # Try to get basic post count information
+                    try:
+                        # Attempt to get recent posts if available and profile is public
+                        if not profile_data.get('is_private', True):
+                            posts_data = self.get_basic_posts_info(profile)
+                            profile_data['recent_posts'] = posts_data
+                        else:
+                            profile_data['recent_posts'] = []
+                            profile_data['note'] = 'Profile is private - limited data available'
+                    except Exception as posts_error:
+                        profile_data['recent_posts'] = []
+                        profile_data['posts_error'] = f'Could not retrieve posts: {str(posts_error)}'
+                    
+                    return profile_data
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"Attempt {attempt + 1} failed for {clean_user}: {error_msg}")
+                    
+                    # Check if it's an authentication error
+                    if 'unauthorized' in error_msg.lower() or '401' in error_msg or 'login' in error_msg.lower():
+                        self.authenticated = False
                         return {
-                            'error': f'Failed to scrape {clean_user} after {self.max_retries} attempts: {str(e)}',
+                            'error': f'Instagram authentication failed for {clean_user}. Please check your session credentials.',
+                            'username': clean_user,
+                            'scraping_status': 'auth_failed'
+                        }
+                    
+                    # Check if it's a rate limit error
+                    if 'rate limit' in error_msg.lower() or '429' in error_msg:
+                        if attempt < max_retries - 1:
+                            print(f"Rate limited, waiting {retry_delay} seconds before retry...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            continue
+                        else:
+                            return {
+                                'error': f'Instagram rate limit reached for {clean_user}. Please try again later.',
+                                'username': clean_user,
+                                'scraping_status': 'rate_limited'
+                            }
+                    
+                    # If it's the last attempt, try the fallback method
+                    if attempt == max_retries - 1:
+                        print(f"Trying fallback method for {clean_user}")
+                        fallback_result = self.scrape_profile_fallback(clean_user)
+                        if fallback_result and 'error' not in fallback_result:
+                            return fallback_result
+                        
+                        return {
+                            'error': f'Failed to scrape {clean_user} after {max_retries} attempts: {error_msg}',
                             'username': clean_user,
                             'scraping_status': 'failed'
                         }
-                    time.sleep(2 ** attempt)  # Exponential backoff
                     
-                except Exception as e:
-                    if attempt == self.max_retries - 1:
-                        return {
-                            'error': f'Unexpected error scraping {clean_user}: {str(e)}',
-                            'username': clean_user,
-                            'scraping_status': 'error'
-                        }
-                    time.sleep(2 ** attempt)
+                    # Wait before retry
+                    time.sleep(retry_delay)
             
         except Exception as e:
             return {
@@ -238,97 +294,61 @@ class InstagramScraper:
                 'username': username,
                 'scraping_status': 'error'
             }
-
-    def _format_profile_data(self, user_data, username):
-        """Format profile data consistently"""
+    
+    def scrape_profile_fallback(self, username):
+        """Fallback method using Instagram's web API directly"""
         try:
-            return {
-                'username': username,
-                'profile_url': f'https://www.instagram.com/{username}/',
-                'full_name': user_data.get('full_name', 'N/A'),
-                'biography': user_data.get('biography', 'N/A'),
-                'followers': user_data.get('edge_followed_by', {}).get('count', 'N/A'),
-                'following': user_data.get('edge_follow', {}).get('count', 'N/A'),
-                'posts_count': user_data.get('edge_owner_to_timeline_media', {}).get('count', 'N/A'),
-                'is_verified': user_data.get('is_verified', False),
-                'is_private': user_data.get('is_private', False),
-                'external_url': user_data.get('external_url', 'N/A'),
-                'profile_pic_url': user_data.get('profile_pic_url_hd', 'N/A'),
-                'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'scraping_status': 'success',
-                'authenticated': True,
-                'method': 'api'
-            }
-        except Exception as e:
-            print(f"Error formatting profile data for {username}: {e}")
-            return None
-
-    def _scrape_profile_fallback(self, username):
-        """Fallback method using direct HTML scraping"""
-        try:
-            self.rate_limit()
-            profile_url = f'https://www.instagram.com/{username}/'
-            response = self.session.get(profile_url)
+            api_url = f'https://www.instagram.com/api/v1/users/web_profile_info/?username={username}'
+            
+            response = self.session.get(api_url)
             
             if response.status_code == 200:
-                # Extract data from HTML using regex
-                html_content = response.text
+                data = response.json()
                 
-                # Extract basic profile information
-                profile_data = {
-                    'username': username,
-                    'profile_url': profile_url,
-                    'full_name': self._extract_from_html(html_content, r'"full_name":"([^"]+)"'),
-                    'biography': self._extract_from_html(html_content, r'"biography":"([^"]+)"'),
-                    'followers': self._extract_from_html(html_content, r'"edge_followed_by":{"count":(\d+)}'),
-                    'following': self._extract_from_html(html_content, r'"edge_follow":{"count":(\d+)}'),
-                    'posts_count': self._extract_from_html(html_content, r'"edge_owner_to_timeline_media":{"count":(\d+)}'),
-                    'is_verified': 'is_verified":true' in html_content,
-                    'is_private': 'is_private":true' in html_content,
-                    'external_url': self._extract_from_html(html_content, r'"external_url":"([^"]+)"'),
-                    'profile_pic_url': self._extract_from_html(html_content, r'"profile_pic_url_hd":"([^"]+)"'),
-                    'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'scraping_status': 'success',
-                    'authenticated': True,
-                    'method': 'fallback'
-                }
-                
-                return profile_data
+                if 'data' in data and 'user' in data['data']:
+                    user_data = data['data']['user']
+                    
+                    return {
+                        'username': username,
+                        'profile_url': f'https://www.instagram.com/{username}/',
+                        'full_name': user_data.get('full_name', 'N/A'),
+                        'biography': user_data.get('biography', 'N/A'),
+                        'followers': user_data.get('edge_followed_by', {}).get('count', 'N/A'),
+                        'following': user_data.get('edge_follow', {}).get('count', 'N/A'),
+                        'posts_count': user_data.get('edge_owner_to_timeline_media', {}).get('count', 'N/A'),
+                        'is_verified': user_data.get('is_verified', False),
+                        'is_private': user_data.get('is_private', False),
+                        'external_url': user_data.get('external_url', 'N/A'),
+                        'profile_pic_url': user_data.get('profile_pic_url_hd', 'N/A'),
+                        'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'scraping_status': 'success',
+                        'authenticated': True,
+                        'method': 'api_fallback'
+                    }
+                else:
+                    print(f"No user data found in API response for {username}")
+                    return None
             else:
-                return {
-                    'error': f'Failed to access profile page for {username}',
-                    'username': username,
-                    'scraping_status': 'failed'
-                }
+                print(f"API request failed with status {response.status_code}")
+                return None
                 
         except Exception as e:
-            return {
-                'error': f'Fallback scraping failed for {username}: {str(e)}',
-                'username': username,
-                'scraping_status': 'failed'
-            }
-
-    def _extract_from_html(self, html_content, pattern):
-        """Extract data from HTML using regex"""
+            print(f"Fallback scraping failed for {username}: {e}")
+            return None
+    
+    def get_basic_posts_info(self, profile):
+        """Try to get basic post information"""
+        posts_data = []
         try:
-            match = re.search(pattern, html_content)
-            if match:
-                return match.group(1)
-            return 'N/A'
-        except:
-            return 'N/A'
-
-    def rate_limit(self):
-        """Implement rate limiting to avoid getting blocked"""
-        current_time = time.time()
-        time_since_last_request = current_time - self.last_request_time
+            # This is a simplified approach since Instagram heavily restricts post data access
+            posts_data.append({
+                'note': 'Post details require Instagram authentication',
+                'suggestion': 'Use Instagram Business API for detailed post analytics'
+            })
+        except Exception as e:
+            print(f"Error getting posts info: {e}")
         
-        if time_since_last_request < self.min_delay:
-            sleep_time = random.uniform(self.min_delay, self.max_delay)
-            time.sleep(sleep_time)
-        
-        self.last_request_time = time.time()
-        self.request_count += 1
+        return posts_data
 
 scraper = InstagramScraper()
 
@@ -429,30 +449,17 @@ def process_scraping(usernames):
     # Clean up old files before starting new scraping
     cleanup_old_files()
     
-    # Create a more descriptive timestamp format
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    batch_id = f"batch_{timestamp}"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
-    # Create organized directory structure
-    batch_dir = f'scraped_data/{batch_id}'
-    os.makedirs(batch_dir, exist_ok=True)
+    # Create more descriptive filenames
+    main_txt = f'scraped_data/all_profiles_{timestamp}.txt'
+    main_excel = f'scraped_data/all_profiles_{timestamp}.xlsx'
     
-    # Create more user-friendly filenames
-    files = {
-        'summary': f'{batch_dir}/00_Scraping_Summary.txt',
-        'all_profiles': {
-            'excel': f'{batch_dir}/01_All_Profiles.xlsx',
-            'text': f'{batch_dir}/01_All_Profiles.txt'
-        },
-        'low_posts': {
-            'excel': f'{batch_dir}/02_Profiles_1_to_5_Posts.xlsx',
-            'text': f'{batch_dir}/02_Profiles_1_to_5_Posts.txt'
-        },
-        'high_posts': {
-            'excel': f'{batch_dir}/03_Profiles_Over_5_Posts.xlsx',
-            'text': f'{batch_dir}/03_Profiles_Over_5_Posts.txt'
-        }
-    }
+    # Separate files for different post count groups with clear names
+    low_posts_txt = f'scraped_data/profiles_under_5_posts_{timestamp}.txt'
+    high_posts_txt = f'scraped_data/profiles_over_5_posts_{timestamp}.txt'
+    low_posts_excel = f'scraped_data/profiles_under_5_posts_{timestamp}.xlsx'
+    high_posts_excel = f'scraped_data/profiles_over_5_posts_{timestamp}.xlsx'
     
     successful_scrapes = 0
     failed_scrapes = 0
@@ -462,142 +469,155 @@ def process_scraping(usernames):
     low_posts_data = []  # 1-5 posts
     high_posts_data = []  # >5 posts
     
-    # Create a queue for thread-safe data collection
-    data_queue = Queue()
-    
-    def scrape_profile_thread(username):
-        try:
-            profile_data = scraper.scrape_profile(username)
-            data_queue.put(('success', profile_data))
-        except Exception as e:
-            data_queue.put(('error', {'username': username, 'error': str(e)}))
-    
-    # Use ThreadPoolExecutor for parallel scraping
-    max_workers = min(5, len(usernames))  # Limit to 5 concurrent threads
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all scraping tasks
-        future_to_username = {
-            executor.submit(scrape_profile_thread, username): username 
-            for username in usernames
-        }
+    with open(main_txt, 'w', encoding='utf-8') as f:
+        f.write(f"Instagram Profile Data Scraping Results\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Powered by: insta-scrape \n")
+        f.write("=" * 80 + "\n\n")
         
-        # Process results as they complete
-        for future in as_completed(future_to_username):
-            status, data = data_queue.get()
-            if status == 'success':
-                try:
-                    posts_count = int(data.get('posts_count', 0))
-                    if posts_count == 0:
-                        continue
-                    elif 1 <= posts_count <= 5:
-                        low_posts_data.append(data)
-                    else:
-                        high_posts_data.append(data)
-                    successful_scrapes += 1
-                except (ValueError, TypeError):
-                    continue
-            else:
-                failed_scrapes += 1
-    
-    # Write detailed summary file
-    with open(files['summary'], 'w', encoding='utf-8') as f:
-        f.write("📊 INSTAGRAM PROFILE SCRAPING SUMMARY\n")
-        f.write("=" * 50 + "\n\n")
+        f.write("IMPORTANT NOTES:\n")
+        f.write("- Instagram heavily restricts automated data access\n")
+        f.write("- This tool provides basic public profile information only\n")
+        f.write("- For detailed analytics, use Instagram Business API\n")
+        f.write("- Respect Instagram's Terms of Service and rate limits\n")
+        f.write("=" * 80 + "\n\n")
         
-        f.write("📅 Scraping Details:\n")
-        f.write("-" * 30 + "\n")
-        f.write(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Total Profiles: {len(usernames)}\n")
-        f.write(f"Batch ID: {batch_id}\n\n")
-        
-        f.write("📈 Results Summary:\n")
-        f.write("-" * 30 + "\n")
-        f.write(f"✅ Successfully Scraped: {successful_scrapes}\n")
-        f.write(f"❌ Failed Scrapes: {failed_scrapes}\n")
-        f.write(f"⏱️ Rate Limited: {rate_limited}\n\n")
-        
-        f.write("👥 Profile Categories:\n")
-        f.write("-" * 30 + "\n")
-        f.write(f"📱 Profiles with 1-5 Posts: {len(low_posts_data)}\n")
-        f.write(f"📸 Profiles with More than 5 Posts: {len(high_posts_data)}\n\n")
-        
-        f.write("📁 Generated Files:\n")
-        f.write("-" * 30 + "\n")
-        for category, file_info in files.items():
-            if category != 'summary':
-                f.write(f"• {os.path.basename(file_info['excel'])}\n")
-                f.write(f"• {os.path.basename(file_info['text'])}\n")
-    
-    # Write detailed profile information to text files
-    def write_profile_text_file(filepath, profiles, title):
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"📊 {title}\n")
-            f.write("=" * 50 + "\n\n")
-            f.write(f"Total Profiles: {len(profiles)}\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        for i, username in enumerate(usernames, 1):
+            f.write(f"PROFILE {i}/{len(usernames)}: @{username}\n")
+            f.write("-" * 50 + "\n")
             
-            for profile in profiles:
-                f.write("Profile Information:\n")
-                f.write("-" * 30 + "\n")
-                f.write(f"👤 Username: {profile['username']}\n")
-                f.write(f"📝 Full Name: {profile['full_name']}\n")
-                f.write(f"📸 Posts Count: {profile['posts_count']}\n")
-                f.write(f"👥 Followers: {profile['followers']}\n")
-                f.write(f"➡️ Following: {profile['following']}\n")
-                f.write(f"📋 Biography: {profile['biography']}\n")
-                f.write(f"🔗 Profile URL: {profile['profile_url']}\n")
-                f.write(f"✔️ Verified: {'Yes' if profile.get('is_verified') else 'No'}\n")
-                f.write(f"🔒 Private: {'Yes' if profile.get('is_private') else 'No'}\n")
-                if profile.get('external_url'):
-                    f.write(f"🌐 External URL: {profile['external_url']}\n")
-                f.write(f"⏰ Scraped At: {profile['scraped_at']}\n")
-                f.write("\n" + "=" * 50 + "\n\n")
+            profile_data = scraper.scrape_profile(username)
+            
+            if 'error' in profile_data:
+                f.write(f"❌ ERROR: {profile_data['error']}\n")
+                
+                if profile_data.get('scraping_status') == 'rate_limited':
+                    rate_limited += 1
+                    f.write("💡 TIP: Try again later when rate limits reset\n")
+                else:
+                    failed_scrapes += 1
+                
+                f.write("\n")
+                continue
+            
+            successful_scrapes += 1
+            
+            # Write profile information
+            f.write(f"✅ Successfully scraped: @{profile_data.get('username', username)}\n")
+            f.write(f"📁 Profile URL: {profile_data.get('profile_url', 'N/A')}\n")
+            f.write(f"👤 Full Name: {profile_data.get('full_name', 'N/A')}\n")
+            f.write(f"📝 Biography: {profile_data.get('biography', 'N/A')}\n")
+            f.write(f"👥 Followers: {profile_data.get('followers', 'N/A')}\n")
+            f.write(f"➡️ Following: {profile_data.get('following', 'N/A')}\n")
+            f.write(f"📸 Posts Count: {profile_data.get('posts_count', 'N/A')}\n")
+            f.write(f"✔️ Verified: {'Yes' if profile_data.get('is_verified') else 'No'}\n")
+            f.write(f"🔒 Private: {'Yes' if profile_data.get('is_private') else 'No'}\n")
+            f.write(f"🔗 External URL: {profile_data.get('external_url', 'N/A')}\n")
+            f.write(f"🖼️ Profile Picture: {profile_data.get('profile_pic_url', 'N/A')}\n")
+            f.write(f"⏰ Scraped At: {profile_data.get('scraped_at')}\n")
+            
+            # Add notes if any
+            if profile_data.get('note'):
+                f.write(f"📋 Note: {profile_data['note']}\n")
+            
+            if profile_data.get('posts_error'):
+                f.write(f"⚠️ Posts Info: {profile_data['posts_error']}\n")
+            
+            # Prepare data for Excel
+            excel_data = {
+                'Username': profile_data.get('username', username),
+                'Full Name': profile_data.get('full_name', 'N/A'),
+                'Biography': profile_data.get('biography', 'N/A'),
+                'Followers': profile_data.get('followers', 'N/A'),
+                'Following': profile_data.get('following', 'N/A'),
+                'Posts Count': profile_data.get('posts_count', 'N/A'),
+                'Verified': 'Yes' if profile_data.get('is_verified') else 'No',
+                'Private': 'Yes' if profile_data.get('is_private') else 'No',
+                'External URL': profile_data.get('external_url', 'N/A'),
+                'Profile Picture URL': profile_data.get('profile_pic_url', 'N/A'),
+                'Scraped At': profile_data.get('scraped_at', 'N/A'),
+                'Status': 'Success',
+                'Note': profile_data.get('note', ''),
+                'Posts Error': profile_data.get('posts_error', '')
+            }
+            
+            # Sort into appropriate group based on post count
+            try:
+                posts_count = int(profile_data.get('posts_count', 0))
+                if posts_count == 0:
+                    # Skip profiles with 0 posts
+                    continue
+                elif 1 <= posts_count <= 5:
+                    low_posts_data.append(excel_data)
+                else:
+                    high_posts_data.append(excel_data)
+            except (ValueError, TypeError):
+                # If posts count is not a valid number, skip the profile
+                continue
+            
+            f.write("\n" + "=" * 80 + "\n\n")
+            
+            # Add delay between requests to be respectful
+            if i < len(usernames):  # Don't sleep after the last username
+                time.sleep(3)
+        
+        # Write summary
+        f.write("SCRAPING SUMMARY:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"✅ Successful: {successful_scrapes}\n")
+        f.write(f"❌ Failed: {failed_scrapes}\n")
+        f.write(f"⏱️ Rate Limited: {rate_limited}\n")
+        f.write(f"📊 Total Processed: {len(usernames)}\n")
+        f.write(f"👥 Profiles with 1-5 Posts: {len(low_posts_data)}\n")
+        f.write(f"👥 Profiles with More than 5 Posts: {len(high_posts_data)}\n")
+        f.write(f"⏰ Completed At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
-    # Write Excel files with organized columns
-    def write_excel_file(filepath, profiles, title):
-        df = pd.DataFrame(profiles)
-        # Reorder columns for better readability
-        columns = [
-            'username', 'full_name', 'posts_count', 'followers', 'following',
-            'biography', 'profile_url', 'is_verified', 'is_private',
-            'external_url', 'profile_pic_url', 'scraped_at'
-        ]
-        df = df[columns]
-        df.to_excel(filepath, index=False, engine='openpyxl')
-    
-    # Write all files
+    # Create separate Excel files for each group
     try:
-        # Write all profiles
-        all_profiles = low_posts_data + high_posts_data
-        write_profile_text_file(files['all_profiles']['text'], all_profiles, "ALL INSTAGRAM PROFILES")
-        write_excel_file(files['all_profiles']['excel'], all_profiles, "All Profiles")
-        
-        # Write low posts profiles
         if low_posts_data:
-            write_profile_text_file(files['low_posts']['text'], low_posts_data, "PROFILES WITH 1-5 POSTS")
-            write_excel_file(files['low_posts']['excel'], low_posts_data, "Profiles with 1-5 Posts")
+            df_low = pd.DataFrame(low_posts_data)
+            df_low.to_excel(low_posts_excel, index=False, engine='openpyxl')
+            
+            # Write low posts text file
+            with open(low_posts_txt, 'w', encoding='utf-8') as f:
+                f.write("Instagram Profiles with 1-5 Posts\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(f"Total Profiles: {len(low_posts_data)}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("-" * 50 + "\n\n")
+                for profile in low_posts_data:
+                    f.write(f"Username: {profile['Username']}\n")
+                    f.write(f"Posts Count: {profile['Posts Count']}\n")
+                    f.write(f"Full Name: {profile['Full Name']}\n")
+                    f.write(f"Followers: {profile['Followers']}\n")
+                    f.write(f"Following: {profile['Following']}\n")
+                    f.write("-" * 30 + "\n")
         
-        # Write high posts profiles
         if high_posts_data:
-            write_profile_text_file(files['high_posts']['text'], high_posts_data, "PROFILES WITH MORE THAN 5 POSTS")
-            write_excel_file(files['high_posts']['excel'], high_posts_data, "Profiles with More than 5 Posts")
+            df_high = pd.DataFrame(high_posts_data)
+            df_high.to_excel(high_posts_excel, index=False, engine='openpyxl')
+            
+            # Write high posts text file
+            with open(high_posts_txt, 'w', encoding='utf-8') as f:
+                f.write("Instagram Profiles with More than 5 Posts\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(f"Total Profiles: {len(high_posts_data)}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("-" * 50 + "\n\n")
+                for profile in high_posts_data:
+                    f.write(f"Username: {profile['Username']}\n")
+                    f.write(f"Posts Count: {profile['Posts Count']}\n")
+                    f.write(f"Full Name: {profile['Full Name']}\n")
+                    f.write(f"Followers: {profile['Followers']}\n")
+                    f.write(f"Following: {profile['Following']}\n")
+                    f.write("-" * 30 + "\n")
+        
+        # Create main Excel file with all data
+        df = pd.DataFrame(low_posts_data + high_posts_data)
+        df.to_excel(main_excel, index=False, engine='openpyxl')
         
     except Exception as e:
-        print(f"Error creating files: {e}")
-        # Write error to summary file
-        with open(files['summary'], 'a', encoding='utf-8') as f:
-            f.write("\n❌ Errors:\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"Error creating files: {str(e)}\n")
-    
-    return {
-        'batch_id': batch_id,
-        'successful': successful_scrapes,
-        'failed': failed_scrapes,
-        'rate_limited': rate_limited,
-        'low_posts': len(low_posts_data),
-        'high_posts': len(high_posts_data)
-    }
+        print(f"Error creating Excel files: {e}")
 
 @app.route('/delete/<filename>')
 def delete_file(filename):
